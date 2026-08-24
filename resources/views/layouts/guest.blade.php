@@ -46,5 +46,23 @@
                 &copy; {{ date('Y') }} PLMS Finance. All rights reserved.
             </div>
         </div>
+
+        <!-- Script Anti Double-Submit -->
+        <script>
+            document.addEventListener('submit', function (e) {
+                const form = e.target;
+                if (form.getAttribute('data-submitting') === 'true') {
+                    e.preventDefault();
+                    return;
+                }
+                form.setAttribute('data-submitting', 'true');
+
+                const submitBtn = form.querySelector('button[type="submit"]');
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.classList.add('opacity-60', 'cursor-not-allowed');
+                }
+            });
+        </script>
     </body>
 </html>

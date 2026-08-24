@@ -14,24 +14,24 @@
 
         <!-- Scripts & Styles -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
-        
+
         <style>
             body { font-family: 'Plus Jakarta Sans', sans-serif; }
         </style>
     </head>
     <body class="antialiased bg-slate-50 text-slate-700 selection:bg-teal-500 selection:text-white">
-        
+
         <!-- WRAPPER UTAMA (Terkunci seukuran layar) -->
         <div class="flex h-screen overflow-hidden bg-slate-50">
-            
+
             <!-- Overlay Mobile -->
             <div id="sidebarOverlay" class="fixed inset-0 bg-slate-900/50 z-30 hidden lg:hidden backdrop-blur-sm transition-opacity"></div>
 
             <!-- SIDEBAR -->
             <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-slate-200 flex flex-col transform -translate-x-full transition-transform duration-300 lg:relative lg:translate-x-0 shrink-0 bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px] bg-[position:0_0,8px_8px]">
-                
+
                 <div class="absolute inset-0 bg-white/95 backdrop-blur-[1px] pointer-events-none"></div>
-                
+
                 <div class="h-16 flex items-center px-6 border-b border-slate-200/50 shrink-0 z-10 relative">
                     <a href="{{ route('dashboard') }}" class="flex items-center gap-2 group">
                         <div class="w-8 h-8 rounded-lg bg-teal-600 flex items-center justify-center text-white font-bold shadow-md shadow-teal-600/20 group-hover:scale-105 transition-transform">
@@ -106,7 +106,7 @@
 
             <!-- KANAN: AREA KONTEN UTAMA -->
             <div class="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50/50">
-                
+
                 <!-- TOP NAVBAR (BACKGROUND HIJAU/TEAL) -->
                 <header class="h-16 shrink-0 bg-teal-600 flex items-center justify-between px-4 sm:px-6 z-20 shadow-md">
                     <div class="flex items-center gap-4">
@@ -116,7 +116,7 @@
                         <!-- Sapaan ringan di Desktop agar kiri tidak kosong -->
                         <span class="text-teal-100 font-medium text-sm hidden lg:block">👋 Selamat datang kembali, semangat kelola keuangan!</span>
                     </div>
-                    
+
                     <div class="flex items-center shrink-0">
                         <div class="flex items-center gap-3 border-l border-teal-500/50 pl-4 ml-2">
                             <span class="text-sm font-bold text-white hidden sm:block">{{ Auth::user()->name }}</span>
@@ -129,17 +129,17 @@
 
                 <!-- MAIN CONTENT (AREA HEADER DIKEMBALIKAN KE SINI) -->
                 <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-                    
+
                     @if (isset($header))
                         <!-- Header kini bebas merentang tanpa tercekik Navbar! -->
                         <div class="mb-6 lg:mb-8">
                             {{ $header }}
                         </div>
                     @endif
-                    
+
                     {{ $slot }}
                 </main>
-                
+
             </div>
         </div>
 
@@ -149,7 +149,7 @@
                 const sidebar = document.getElementById('sidebar');
                 const overlay = document.getElementById('sidebarOverlay');
                 const toggleBtn = document.getElementById('sidebarToggle');
-                
+
                 function toggleSidebar() {
                     sidebar.classList.toggle('-translate-x-full');
                     overlay.classList.toggle('hidden');
@@ -157,6 +157,35 @@
 
                 if (toggleBtn) toggleBtn.addEventListener('click', toggleSidebar);
                 if (overlay) overlay.addEventListener('click', toggleSidebar);
+            });
+        </script>
+
+        <!-- Script Anti Double-Submit -->
+        <script>
+            document.addEventListener('submit', function (e) {
+                const form = e.target;
+
+                // Jika form sudah disubmit sebelumnya, hentikan aksi
+                if (form.getAttribute('data-submitting') === 'true') {
+                    e.preventDefault();
+                    return;
+                }
+
+                // Tandai form sedang diproses
+                form.setAttribute('data-submitting', 'true');
+
+                // Cari tombol submit di dalam form tersebut
+                const submitBtn = form.querySelector('button[type="submit"]');
+                if (submitBtn) {
+                    // Nonaktifkan tombol agar tidak bisa diklik lagi
+                    submitBtn.disabled = true;
+                    // Tambahkan efek visual (agak pudar dan kursor dilarang)
+                    submitBtn.classList.add('opacity-60', 'cursor-not-allowed');
+
+                    // Opsional: Ubah teks tombol untuk memberi indikasi visual
+                    const originalContent = submitBtn.innerHTML;
+                    submitBtn.innerHTML = '<i class="ti ti-loader animate-spin text-lg mr-2"></i> Memproses...';
+                }
             });
         </script>
     </body>
