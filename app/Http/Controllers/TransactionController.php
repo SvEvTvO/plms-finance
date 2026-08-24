@@ -6,6 +6,7 @@ use App\Models\Category;
 use App\Models\Transaction;
 use App\Models\Wallet;
 use App\Services\FinanceService;
+use App\Services\FonnteService;
 use Illuminate\Http\Request;
 use Exception;
 
@@ -13,7 +14,6 @@ class TransactionController extends Controller
 {
     protected $financeService;
 
-    // Menginjeksi FinanceService ke dalam Controller
     public function __construct(FinanceService $financeService)
     {
         $this->financeService = $financeService;
@@ -21,8 +21,6 @@ class TransactionController extends Controller
 
     public function index()
     {
-        // Fitur Filter & Search akan ditambahkan di Phase 8. 
-        // Saat ini kita ambil daftar transaksi standar.
         $transactions = Transaction::with(['wallet', 'category', 'sourceWallet', 'destinationWallet'])
             ->where('user_id', auth()->id())
             ->orderByDesc('date')
@@ -34,7 +32,6 @@ class TransactionController extends Controller
 
     public function create()
     {
-        // Hanya tampilkan dompet yang aktif untuk transaksi baru
         $wallets = Wallet::where('user_id', auth()->id())->where('is_active', true)->get();
         $categories = Category::where('user_id', auth()->id())->orderBy('name')->get();
 
@@ -43,18 +40,13 @@ class TransactionController extends Controller
 
     public function store(Request $request)
     {
-        // Validasi request sesuai tipe transaksi
         $validated = $request->validate([
             'type' => 'required|in:income,expense,transfer',
             'amount' => 'required|numeric|min:1',
             'date' => 'required|date',
             'description' => 'nullable|string|max:255',
-            
-            // Wajib jika bukan transfer
             'wallet_id' => 'required_if:type,income,expense',
             'category_id' => 'required_if:type,income,expense',
-            
-            // Wajib jika transfer (dan source/destination tidak boleh sama)
             'source_wallet_id' => 'required_if:type,transfer',
             'destination_wallet_id' => 'required_if:type,transfer|different:source_wallet_id',
         ], [
@@ -62,8 +54,40 @@ class TransactionController extends Controller
         ]);
 
         try {
-            // Lempar logika finansial ke Service
-            $this->financeService->createTransaction($validated);
+            // Simpan transaksi melalui FinanceService
+            $transaction = $this->financeService->createTransaction($validated);
+
+            // Susun pesan notifikasi WhatsApp
+            $nominal = 'Rp ' . number_format($validated['amount'], 0, ',', '.');
+            $desc = $validated['description'] ?? '-';
+
+            if ($validated['type'] === 'transfer') {
+                $source = Wallet::find($validated['source_wallet_id'])->name ?? 'Dompet Asal';
+                $dest = Wallet::find($validated['destination_wallet_id'])->name ?? 'Dompet Tujuan';
+
+                $pesan = "🔄 *Transfer Saldo Berhasil!*\n\n"
+                       . "💰 *Nominal:* {$nominal}\n"
+                       . "📤 *Dari:* {$source}\n"
+                       . "📥 *Ke:* {$dest}\n"
+                       . "📝 *Catatan:* {$desc}\n\n"
+                       . "_PLMS Finance Management_";
+            } else {
+                $typeLabel = $validated['type'] === 'income' ? '🟢 Pemasukan' : '🔴 Pengeluaran';
+                $walletName = Wallet::find($validated['wallet_id'])->name ?? 'Dompet Utama';
+                $categoryName = Category::find($validated['category_id'])->name ?? 'Umum';
+
+                $pesan = "🔔 *Transaksi Baru Tercatat!*\n\n"
+                       . "📌 *Jenis:* {$typeLabel}\n"
+                       . "📂 *Kategori:* {$categoryName}\n"
+                       . "💰 *Nominal:* {$nominal}\n"
+                       . "💳 *Dompet:* {$walletName}\n"
+                       . "📝 *Catatan:* {$desc}\n\n"
+                       . "_PLMS Finance Management_";
+            }
+
+            // Kirim notifikasi via Fonnte
+            FonnteService::send($pesan);
+
             return redirect()->route('transactions.index')->with('success', 'Transaksi berhasil dicatat.');
         } catch (Exception $e) {
             return back()->withInput()->with('error', $e->getMessage());
@@ -74,7 +98,6 @@ class TransactionController extends Controller
     {
         if ($transaction->user_id !== auth()->id()) abort(403);
 
-        // Ambil semua dompet (termasuk yang nonaktif, barangkali transaksi lama pakai dompet nonaktif)
         $allWallets = Wallet::where('user_id', auth()->id())->get();
         $categories = Category::where('user_id', auth()->id())->orderBy('name')->get();
 
@@ -90,10 +113,8 @@ class TransactionController extends Controller
             'amount' => 'required|numeric|min:1',
             'date' => 'required|date',
             'description' => 'nullable|string|max:255',
-            
             'wallet_id' => 'required_if:type,income,expense',
             'category_id' => 'required_if:type,income,expense',
-            
             'source_wallet_id' => 'required_if:type,transfer',
             'destination_wallet_id' => 'required_if:type,transfer|different:source_wallet_id',
         ]);
