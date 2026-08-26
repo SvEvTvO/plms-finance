@@ -56,6 +56,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/whatsapp-guide', function () {
         return view('whatsapp-guide');
     })->name('whatsapp.guide');
+
+    // Endpoint ini akan menerima pesan masuk (POST) dari Fonnte
+    Route::post('/fonnte/webhook', [FonnteWebhookController::class, 'handle']);
 });
 
 Route::post('/api/fonnte/webhook', [FonnteWebhookController::class, 'handle']);
