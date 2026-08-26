@@ -12,11 +12,12 @@ class FonnteService
      */
     public static function send(string $message, ?string $target = null): bool
     {
-        $token = env('FONNTE_TOKEN');
+        // Menggunakan token dari .env atau fallback ke token akun Fonnte Anda
+        $token = env('FONNTE_TOKEN') ?: 'n4R5D9UjUyjBxJw9m3Uv';
         $phone = $target ?? env('FONNTE_TARGET_PHONE');
 
-        if (!$token || !$phone) {
-            Log::error('Fonnte: FONNTE_TOKEN atau FONNTE_TARGET_PHONE belum diatur di .env');
+        if (!$phone) {
+            Log::error('Fonnte Error: Nomor target pengiriman tidak ditemukan.');
             return false;
         }
 
@@ -29,9 +30,11 @@ class FonnteService
                 'countryCode' => '62',
             ]);
 
+            Log::info("Fonnte Send Response to [{$phone}]: " . $response->body());
+
             return $response->successful();
         } catch (\Exception $e) {
-            Log::error('Fonnte Error: ' . $e->getMessage());
+            Log::error('Fonnte Exception: ' . $e->getMessage());
             return false;
         }
     }

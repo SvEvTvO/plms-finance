@@ -12,6 +12,7 @@ use Carbon\Carbon;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class FonnteWebhookController extends Controller
 {
@@ -27,123 +28,123 @@ class FonnteWebhookController extends Controller
      */
     public function handle(Request $request)
     {
-        $sender = $request->input('sender');
-        $message = trim($request->input('message', ''));
-
-        Log::info("Fonnte Webhook Inbound [{$sender}]: {$message}");
-
-        if (empty($message) || empty($sender)) {
-            return response()->json(['status' => 'ignored'], 200);
+        // 1. Respon jika Fonnte melakukan verifikasi/ping via GET
+        if ($request->isMethod('get')) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'PLMS-Finance Fonnte Webhook is Active!'
+            ], 200);
         }
 
-        // 1. Identifikasi User
-        $user = $this->findUserByPhone($sender);
-
-        // Pastikan cek keberadaan user dulu!
-        if (!$user) {
-            $msg = "⚠️ *Nomor Tidak Terdaftar*\n\n"
-                . "Nomor WhatsApp Anda ({$sender}) belum terhubung dengan akun *PLMS Finance*.\n"
-                . "Silakan daftarkan nomor ini di menu Pengaturan Profil pada aplikasi web.";
-            FonnteService::send($msg, $sender);
-            return response()->json(['status' => 'unregistered user'], 200);
-        }
-
-        auth()->login($user);
-
-        // 2. Siapkan command bersih
-        $cleanCommand = strtoupper(trim($message));
-
-        // 3. Pengecekan Khusus Admin (Aman karena $user & $cleanCommand sudah valid)
-        if ($user->is_admin) {
-            if ($cleanCommand === 'ADMIN' || $cleanCommand === 'STATISTIK') {
-                $totalUsers = User::count();
-                $todayTransactions = Transaction::whereDate('created_at', today())->count();
-                $todayVolume = Transaction::whereDate('created_at', today())->sum('amount');
-
-                $msg = "🛡️ *PLMS SYSTEM MONITORING (ADMIN)*\n\n"
-                    . "👥 *Total Pengguna:* {$totalUsers} Akun\n"
-                    . "📝 *Transaksi Hari Ini:* {$todayTransactions} Transaksi\n"
-                    . "💰 *Volume Perputaran:* Rp " . number_format($todayVolume, 0, ',', '.') . "\n\n"
-                    . "_Server Status: Active_";
-
-                FonnteService::send($msg, $sender);
-                return response()->json(['status' => 'admin stats sent'], 200);
-            }
-        }
-
-        // 2. Evaluasi Command Bantu
-        $cleanCommand = strtoupper(trim($message));
-        switch ($cleanCommand) {
-            case 'BANTUAN':
-            case 'MENU':
-            case 'HELP':
-            case 'PANDUAN':
-                $this->replyHelp($sender);
-                return response()->json(['status' => 'help delivered'], 200);
-
-            case 'SALDO':
-            case 'DOMPET':
-                $this->replySaldo($user, $sender);
-                return response()->json(['status' => 'saldo delivered'], 200);
-
-            case 'REKAP':
-            case 'RINGKASAN':
-            case 'LAPORAN':
-                $this->replyRekap($user, $sender);
-                return response()->json(['status' => 'rekap delivered'], 200);
-
-            case 'RIWAYAT':
-            case 'HISTORY':
-            case 'LOG':
-                $this->replyRiwayat($user, $sender);
-                return response()->json(['status' => 'riwayat delivered'], 200);
-        }
-
-        // 3. Evaluasi Pesan Transaksi
         try {
-            // A. Cek apakah format Transfer Saldo
+            $sender = $request->input('sender'); // Nomor pengirim WhatsApp
+            $message = trim($request->input('message', ''));
+
+            Log::info("Fonnte Webhook Inbound [{$sender}]: {$message}");
+
+            if (empty($message) || empty($sender)) {
+                return response()->json(['status' => 'ignored', 'message' => 'Empty sender or message'], 200);
+            }
+
+            // 2. Identifikasi User berdasarkan nomor WhatsApp
+            $user = $this->findUserByPhone($sender);
+
+            if (!$user) {
+                $msg = "⚠️ *Nomor Tidak Terdaftar*\n\n"
+                     . "Nomor WhatsApp Anda ({$sender}) belum terhubung dengan akun *PLMS Finance*.\n"
+                     . "Silakan daftarkan nomor ini di menu Pengaturan Profil pada aplikasi web.";
+                FonnteService::send($msg, $sender);
+                return response()->json(['status' => 'unregistered user'], 200);
+            }
+
+            $cleanCommand = strtoupper(trim($message));
+
+            // 3. Command Khusus Admin
+            if ($user->is_admin) {
+                if ($cleanCommand === 'ADMIN' || $cleanCommand === 'STATISTIK') {
+                    $totalUsers = User::count();
+                    $todayTransactions = Transaction::whereDate('created_at', today())->count();
+                    $todayVolume = Transaction::whereDate('created_at', today())->sum('amount');
+
+                    $msg = "🛡️ *PLMS SYSTEM MONITORING (ADMIN)*\n\n"
+                        . "👥 *Total Pengguna:* {$totalUsers} Akun\n"
+                        . "📝 *Transaksi Hari Ini:* {$todayTransactions} Transaksi\n"
+                        . "💰 *Volume Perputaran:* Rp " . number_format($todayVolume, 0, ',', '.') . "\n\n"
+                        . "_Server Status: Active_";
+
+                    FonnteService::send($msg, $sender);
+                    return response()->json(['status' => 'admin stats sent'], 200);
+                }
+            }
+
+            // 4. Evaluasi Command Bantu
+            switch ($cleanCommand) {
+                case 'BANTUAN':
+                case 'MENU':
+                case 'HELP':
+                case 'PANDUAN':
+                    $this->replyHelp($sender);
+                    return response()->json(['status' => 'help delivered'], 200);
+
+                case 'SALDO':
+                case 'DOMPET':
+                    $this->replySaldo($user, $sender);
+                    return response()->json(['status' => 'saldo delivered'], 200);
+
+                case 'REKAP':
+                case 'RINGKASAN':
+                case 'LAPORAN':
+                    $this->replyRekap($user, $sender);
+                    return response()->json(['status' => 'rekap delivered'], 200);
+
+                case 'RIWAYAT':
+                case 'HISTORY':
+                case 'LOG':
+                    $this->replyRiwayat($user, $sender);
+                    return response()->json(['status' => 'riwayat delivered'], 200);
+            }
+
+            // 5. Evaluasi Format Transaksi
+            // A. Transfer Antar Dompet
             if (preg_match('/^transfer\s+/i', $message)) {
                 $this->processTransfer($user, $message, $sender);
                 return response()->json(['status' => 'transfer processed'], 200);
             }
 
-            // B. Cek apakah format Terstruktur Multi-Baris (mengandung ':')
+            // B. Format Terstruktur Multi-Baris
             if (str_contains($message, ':')) {
                 $this->processStructuredTransaction($user, $message, $sender);
                 return response()->json(['status' => 'structured transaction processed'], 200);
             }
 
-            // C. Format Natural / 1 Baris
+            // C. Format Natural 1 Baris
             $this->processNaturalTransaction($user, $message, $sender);
             return response()->json(['status' => 'natural transaction processed'], 200);
 
-        } catch (Exception $e) {
-            Log::error("Fonnte Transaction Error: " . $e->getMessage());
-            FonnteService::send("⚠️ *Gagal Mencatat:* " . $e->getMessage(), $sender);
+        } catch (Throwable $e) {
+            Log::error("Fonnte Webhook Error: " . $e->getMessage() . " at " . $e->getFile() . ":" . $e->getLine());
+
+            if (!empty($sender)) {
+                FonnteService::send("⚠️ *Terjadi Kesalahan:* " . $e->getMessage(), $sender);
+            }
+
             return response()->json(['status' => 'error', 'message' => $e->getMessage()], 200);
         }
     }
 
     /**
-     * Helper: Cari user berdasarkan variasi format nomor HP (08xx atau 628xx)
+     * Helper: Cari user berdasarkan variasi nomor HP yang fleksibel
      */
     private function findUserByPhone(string $sender): ?User
     {
         $clean = preg_replace('/[^0-9]/', '', $sender);
-        $variants = [$clean];
 
-        if (str_starts_with($clean, '62')) {
-            $variants[] = '0' . substr($clean, 2);
-        } elseif (str_starts_with($clean, '0')) {
-            $variants[] = '62' . substr($clean, 1);
-        }
+        // Ambil 9-10 digit terakhir untuk pencocokan akurat
+        $lastDigits = substr($clean, -9);
 
-        return User::whereIn('whatsapp_number', $variants)->first();
+        return User::where('whatsapp_number', 'LIKE', "%{$lastDigits}%")->first();
     }
 
-    /**
-     * Command: BANTUAN
-     */
     private function replyHelp(string $sender): void
     {
         $text = "🤖 *PANDUAN BOT PLMS FINANCE*\n\n"
@@ -152,23 +153,18 @@ class FonnteWebhookController extends Controller
               . "• *REKAP* : Rekap pemasukan & pengeluaran bulan ini\n"
               . "• *RIWAYAT* : 5 transaksi terakhir\n"
               . "• *BANTUAN* : Menampilkan menu ini\n\n"
-              . "💸 *Format Transaksi 1 Baris (Cepat):*\n"
-              . "• *Pengeluaran:* `Makan Siang 25000 GoPay`\n"
-              . "• *Pemasukan:* `+ Gaji 5000000 BCA`\n"
-              . "• *Transfer:* `Transfer 50000 BCA ke GoPay`\n\n"
-              . "📝 *Format Terstruktur:*\n"
+              . "📝 *Format Catat Transaksi:*\n"
               . "Jenis : Pengeluaran\n"
+              . "Kategori : Makanan\n"
               . "Nominal : 25000\n"
               . "Dompet : Cash\n"
-              . "Kategori : Makanan\n"
-              . "Keterangan : Nasi Padang";
+              . "Keterangan : Makan Siang\n\n"
+              . "🔄 *Format Transfer:*\n"
+              . "Transfer 50000 BCA ke GoPay";
 
         FonnteService::send($text, $sender);
     }
 
-    /**
-     * Command: SALDO
-     */
     private function replySaldo(User $user, string $sender): void
     {
         $wallets = Wallet::where('user_id', $user->id)->where('is_active', true)->get();
@@ -193,9 +189,6 @@ class FonnteWebhookController extends Controller
         FonnteService::send($msg, $sender);
     }
 
-    /**
-     * Command: REKAP
-     */
     private function replyRekap(User $user, string $sender): void
     {
         $startOfMonth = Carbon::now()->startOfMonth()->toDateString();
@@ -213,7 +206,6 @@ class FonnteWebhookController extends Controller
 
         $net = $income - $expense;
         $netSign = $net >= 0 ? '🟢 Surplus' : '🔴 Defisit';
-
         $monthName = Carbon::now()->translatedFormat('F Y');
 
         $msg = "📊 *REKAP FINANSIAL ({$monthName})*\n\n"
@@ -226,9 +218,6 @@ class FonnteWebhookController extends Controller
         FonnteService::send($msg, $sender);
     }
 
-    /**
-     * Command: RIWAYAT
-     */
     private function replyRiwayat(User $user, string $sender): void
     {
         $transactions = Transaction::with(['wallet', 'category', 'sourceWallet', 'destinationWallet'])
@@ -267,10 +256,6 @@ class FonnteWebhookController extends Controller
         FonnteService::send($msg, $sender);
     }
 
-    /**
-     * Parser: Transfer Antar Dompet
-     * Format: Transfer 50000 BCA ke GoPay
-     */
     private function processTransfer(User $user, string $message, string $sender): void
     {
         if (!preg_match('/transfer\s+([0-9\.\,kK]+)\s+(.+?)\s+(?:ke|>)\s+(.+)/i', $message, $matches)) {
@@ -320,9 +305,6 @@ class FonnteWebhookController extends Controller
         FonnteService::send($msg, $sender);
     }
 
-    /**
-     * Parser: Format Terstruktur Multi-Baris
-     */
     private function processStructuredTransaction(User $user, string $message, string $sender): void
     {
         $lines = explode("\n", $message);
@@ -359,10 +341,6 @@ class FonnteWebhookController extends Controller
         $this->sendTransactionSuccessReceipt($payload, $wallet, $category, $sender);
     }
 
-    /**
-     * Parser: Format Natural 1 Baris
-     * Contoh: "Makan Siang 25000 GoPay" atau "+ Gaji 5000000 BCA"
-     */
     private function processNaturalTransaction(User $user, string $message, string $sender): void
     {
         $tokens = preg_split('/\s+/', $message);
@@ -378,7 +356,6 @@ class FonnteWebhookController extends Controller
 
         $type = $isIncome ? 'income' : 'expense';
 
-        // Temukan index angka nominal
         $amountIndex = -1;
         $amount = 0;
 
@@ -392,14 +369,12 @@ class FonnteWebhookController extends Controller
         }
 
         if ($amountIndex === -1 || $amount <= 0) {
-            throw new Exception("Nominal transaksi tidak ditemukan. Contoh: *Makan Siang 25000 GoPay* atau ketik *BANTUAN*.");
+            throw new Exception("Perintah tidak dikenali. Ketik *BANTUAN* untuk melihat format.");
         }
 
-        // Teks sebelum angka = Deskripsi
         $descWords = array_slice($tokens, 0, $amountIndex);
         $description = !empty($descWords) ? implode(' ', $descWords) : ($isIncome ? 'Pemasukan' : 'Pengeluaran');
 
-        // Teks setelah angka = Dompet (jika ada)
         $walletWords = array_slice($tokens, $amountIndex + 1);
         $walletQuery = !empty($walletWords) ? implode(' ', $walletWords) : null;
 
@@ -420,9 +395,6 @@ class FonnteWebhookController extends Controller
         $this->sendTransactionSuccessReceipt($payload, $wallet, $category, $sender);
     }
 
-    /**
-     * Helper: Kirim Struk Transaksi Sukses
-     */
     private function sendTransactionSuccessReceipt(array $payload, Wallet $wallet, Category $category, string $sender): void
     {
         $typeLabel = $payload['type'] === 'income' ? '🟢 Pemasukan' : '🔴 Pengeluaran';
@@ -440,9 +412,6 @@ class FonnteWebhookController extends Controller
         FonnteService::send($msg, $sender);
     }
 
-    /**
-     * Helper: Ekstraksi angka (mendukung '25k', '50.000', '15000')
-     */
     private function parseAmount(string $val, bool $strict = true): float
     {
         $val = strtolower(trim($val));
@@ -463,9 +432,6 @@ class FonnteWebhookController extends Controller
         return $num;
     }
 
-    /**
-     * Helper: Cari dompet berdasarkan nama atau fallback ke dompet default
-     */
     private function findWalletOrDefault(int $userId, ?string $query): Wallet
     {
         if (!empty($query)) {
@@ -487,9 +453,6 @@ class FonnteWebhookController extends Controller
         return $defaultWallet;
     }
 
-    /**
-     * Helper: Cari kategori yang mirip atau otomatis buat baru jika belum ada
-     */
     private function findOrCreateCategory(int $userId, string $type, ?string $name): Category
     {
         $catName = !empty($name) ? trim($name) : ($type === 'income' ? 'Pemasukan Umum' : 'Pengeluaran Umum');
