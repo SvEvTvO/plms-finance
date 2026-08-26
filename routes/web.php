@@ -51,6 +51,11 @@ Route::middleware('auth')->group(function () {
     // Reports & Export
     Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
     Route::get('reports/export', [ReportController::class, 'export'])->name('reports.export');
+
+    //Panduan Chat Whatsapp
+    Route::get('/whatsapp-guide', function () {
+        return view('whatsapp-guide');
+    })->name('whatsapp.guide');
 });
 
 Route::post('/api/fonnte/webhook', [FonnteWebhookController::class, 'handle']);

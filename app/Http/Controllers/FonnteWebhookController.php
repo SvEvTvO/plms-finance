@@ -27,28 +27,49 @@ class FonnteWebhookController extends Controller
      */
     public function handle(Request $request)
     {
-        $sender = $request->input('sender'); // Nomor pengirim WhatsApp
+        $sender = $request->input('sender');
         $message = trim($request->input('message', ''));
 
         Log::info("Fonnte Webhook Inbound [{$sender}]: {$message}");
 
         if (empty($message) || empty($sender)) {
-            return response()->json(['status' => 'ignored', 'message' => 'Empty sender or message'], 200);
+            return response()->json(['status' => 'ignored'], 200);
         }
 
-        // 1. Identifikasi User berdasarkan nomor WhatsApp
+        // 1. Identifikasi User
         $user = $this->findUserByPhone($sender);
 
+        // Pastikan cek keberadaan user dulu!
         if (!$user) {
             $msg = "⚠️ *Nomor Tidak Terdaftar*\n\n"
-                 . "Nomor WhatsApp Anda ({$sender}) belum terhubung dengan akun *PLMS Finance*.\n"
-                 . "Silakan daftarkan nomor ini di menu Pengaturan Profil pada aplikasi web.";
+                . "Nomor WhatsApp Anda ({$sender}) belum terhubung dengan akun *PLMS Finance*.\n"
+                . "Silakan daftarkan nomor ini di menu Pengaturan Profil pada aplikasi web.";
             FonnteService::send($msg, $sender);
             return response()->json(['status' => 'unregistered user'], 200);
         }
 
-        // Login context untuk service
         auth()->login($user);
+
+        // 2. Siapkan command bersih
+        $cleanCommand = strtoupper(trim($message));
+
+        // 3. Pengecekan Khusus Admin (Aman karena $user & $cleanCommand sudah valid)
+        if ($user->is_admin) {
+            if ($cleanCommand === 'ADMIN' || $cleanCommand === 'STATISTIK') {
+                $totalUsers = User::count();
+                $todayTransactions = Transaction::whereDate('created_at', today())->count();
+                $todayVolume = Transaction::whereDate('created_at', today())->sum('amount');
+
+                $msg = "🛡️ *PLMS SYSTEM MONITORING (ADMIN)*\n\n"
+                    . "👥 *Total Pengguna:* {$totalUsers} Akun\n"
+                    . "📝 *Transaksi Hari Ini:* {$todayTransactions} Transaksi\n"
+                    . "💰 *Volume Perputaran:* Rp " . number_format($todayVolume, 0, ',', '.') . "\n\n"
+                    . "_Server Status: Active_";
+
+                FonnteService::send($msg, $sender);
+                return response()->json(['status' => 'admin stats sent'], 200);
+            }
+        }
 
         // 2. Evaluasi Command Bantu
         $cleanCommand = strtoupper(trim($message));

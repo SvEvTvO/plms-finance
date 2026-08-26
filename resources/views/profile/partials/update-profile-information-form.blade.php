@@ -5,7 +5,7 @@
         </h2>
 
         <p class="mt-1 text-sm text-gray-600">
-            {{ __("Update your account's profile information and email address.") }}
+            {{ __("Update your account's profile information, email address, and WhatsApp number.") }}
         </p>
     </header>
 
@@ -45,6 +45,14 @@
                     @endif
                 </div>
             @endif
+        </div>
+
+        <!-- Nomor WhatsApp -->
+        <div>
+            <x-input-label for="whatsapp_number" :value="__('Nomor WhatsApp')" />
+            <x-text-input id="whatsapp_number" name="whatsapp_number" type="text" class="mt-1 block w-full" :value="old('whatsapp_number', $user->whatsapp_number)" placeholder="Contoh: 083839717167 atau 6283839717167" />
+            <p class="text-xs text-slate-500 mt-1">Gunakan format 08xx atau 628xx agar pesan transaksi dapat dikenali sistem bot.</p>
+            <x-input-error class="mt-2" :messages="$errors->get('whatsapp_number')" />
         </div>
 
         <div class="flex items-center gap-4">

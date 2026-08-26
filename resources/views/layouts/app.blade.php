@@ -92,6 +92,18 @@
                             </li>
                         </ul>
                     </div>
+
+                    <!-- INTEGRASI -->
+                    <div>
+                        <h4 class="px-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Integrasi</h4>
+                        <ul class="space-y-0.5">
+                            <li>
+                                <a href="{{ route('whatsapp.guide') }}" class="flex items-center px-3 py-2 text-sm font-semibold rounded-lg {{ request()->routeIs('whatsapp.guide') ? 'bg-teal-600 text-white shadow-md shadow-teal-600/20' : 'text-slate-600 hover:bg-teal-50 hover:text-teal-600 transition-colors' }}">
+                                    <i class="ti ti-brand-whatsapp text-lg mr-3"></i> WhatsApp Bot
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
                 </nav>
 
                 <div class="p-4 border-t border-slate-200/50 shrink-0 z-10 relative bg-white">
