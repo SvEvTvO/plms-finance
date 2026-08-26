@@ -10,6 +10,10 @@ use App\Http\Controllers\GoalController;
 use App\Http\Controllers\SavingController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\WhatsAppWebhookController;
+use App\Http\Controllers\FonnteWebhookController;
+
+
+
 
 Route::get('/', function () {
     return view('welcome');
@@ -48,5 +52,7 @@ Route::middleware('auth')->group(function () {
     Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
     Route::get('reports/export', [ReportController::class, 'export'])->name('reports.export');
 });
+
+Route::post('/api/fonnte/webhook', [FonnteWebhookController::class, 'handle']);
 
 require __DIR__.'/auth.php';
