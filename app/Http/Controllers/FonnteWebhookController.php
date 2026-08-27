@@ -15,8 +15,6 @@ use Throwable;
 
 class FonnteWebhookController extends Controller
 {
-    // KITA HAPUS __construct FinanceService agar tidak Crash
-
     public function handle(Request $request)
     {
         if ($request->isMethod('get')) {
@@ -24,11 +22,17 @@ class FonnteWebhookController extends Controller
         }
 
         try {
-            // 1. BERSIHKAN NOMOR SEJAK AWAL (Buang karakter aneh seperti @c.us dari Fonnte)
             $rawSender = $request->input('sender', '');
             $sender = preg_replace('/[^0-9]/', '', $rawSender);
 
-            // Antisipasi API Fonnte (Bisa pakai key 'message' atau 'text')
+            // --- FIX BUG (DOUBLE 62) ---
+            // Jika Fonnte mengirim nomor berawalan '62', ubah kembali menjadi '0'
+            // agar saat dibalas, tidak menjadi '62628...' di FonnteService.
+            if (str_starts_with($sender, '62')) {
+                $sender = '0' . substr($sender, 2);
+            }
+            // ---------------------------
+
             $message = trim($request->input('message') ?? $request->input('text') ?? '');
 
             Log::info("Fonnte INBOUND [{$sender}]: {$message}");
@@ -41,7 +45,6 @@ class FonnteWebhookController extends Controller
             $user = $this->findUserByPhone($sender);
 
             if (!$user) {
-                // Jika nomor tidak terdaftar, abaikan saja agar tidak spam ke nomor orang lain
                 Log::info("Fonnte: Nomor {$sender} tidak terdaftar.");
                 return response()->json(['status' => 'unregistered'], 200);
             }
@@ -80,7 +83,7 @@ class FonnteWebhookController extends Controller
                 return response()->json(['status' => 'structured transaction processed'], 200);
             }
 
-            // Jika bukan format di atas, kirim error format tidak dikenali
+            // Jika format tidak dikenali
             FonnteService::send("⚠️ *Perintah Tidak Dikenali*\nKetik *BANTUAN* untuk melihat format yang benar.", $sender);
             return response()->json(['status' => 'unknown command'], 200);
 
@@ -95,7 +98,6 @@ class FonnteWebhookController extends Controller
 
     private function findUserByPhone(string $sender): ?User
     {
-        // Ambil 9 digit terakhir untuk menghindari error format 08/62/dst
         $lastDigits = substr($sender, -9);
         return User::where('whatsapp_number', 'LIKE', "%{$lastDigits}%")->first();
     }
@@ -189,11 +191,10 @@ class FonnteWebhookController extends Controller
 
         $type = str_contains(strtolower($dataMap['jenis']), 'masuk') ? 'income' : 'expense';
         $amount = $this->parseAmount($dataMap['nominal']);
-
+        
         $wallet = $this->findWalletOrDefault($user->id, $dataMap['dompet'] ?? null);
         $category = $this->findOrCreateCategory($user->id, $type, $dataMap['kategori'] ?? null);
 
-        // 1. Simpan Transaksi
         Transaction::create([
             'user_id' => $user->id,
             'type' => $type,
@@ -204,7 +205,6 @@ class FonnteWebhookController extends Controller
             'description' => $dataMap['keterangan'] ?? '-',
         ]);
 
-        // 2. Update Saldo Dompet
         if ($type === 'income') {
             $wallet->increment('balance', $amount);
         } else {
@@ -228,11 +228,9 @@ class FonnteWebhookController extends Controller
             throw new Exception("Dompet asal dan tujuan tidak boleh sama.");
         }
 
-        // 1. Update Saldo (Kurangi asal, tambah tujuan)
         $sourceWallet->decrement('balance', $amount);
         $destWallet->increment('balance', $amount);
 
-        // 2. Simpan Transaksi
         Transaction::create([
             'user_id' => $user->id,
             'type' => 'transfer',
@@ -251,7 +249,7 @@ class FonnteWebhookController extends Controller
     {
         $icon = $type === 'income' ? '🟢' : '🔴';
         $typeLabel = $type === 'income' ? 'Pemasukan' : 'Pengeluaran';
-
+        
         $msg = "✅ *Transaksi Dicatat!*\n\n📌 *Jenis:* {$icon} {$typeLabel}\n📂 *Kategori:* {$category->name}\n💰 *Nominal:* Rp " . number_format($amount, 0, ',', '.') . "\n💳 *Dompet:* {$wallet->name} (Sisa: Rp " . number_format($wallet->balance, 0, ',', '.') . ")\n📝 *Catatan:* {$desc}";
         FonnteService::send($msg, $sender);
     }
@@ -261,7 +259,7 @@ class FonnteWebhookController extends Controller
         $val = strtolower(trim($val));
         $multiplier = str_ends_with($val, 'k') ? 1000 : 1;
         $num = (float) preg_replace('/[^0-9]/', '', $val) * $multiplier;
-
+        
         if ($num <= 0) throw new Exception("Nominal tidak valid.");
         return $num;
     }

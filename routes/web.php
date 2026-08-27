@@ -9,6 +9,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\GoalController;
 use App\Http\Controllers\SavingController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\FonnteWebhookController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -46,3 +47,4 @@ Route::middleware('auth')->group(function () {
 });
 
 require __DIR__.'/auth.php';
+Route::match(['get', 'post'], '/fonnte-webhook', [FonnteWebhookController::class, 'handle']);

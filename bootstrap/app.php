@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->validateCsrfTokens(except: [
             'api/fonnte/webhook',
+            'fonnte-webhook', // <-- INI YANG PALING PENTING DITAMBAHKAN
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
@@ -22,5 +23,3 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
     })->create();
-
-
