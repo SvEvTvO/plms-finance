@@ -25,74 +25,71 @@ class FonnteWebhookController extends Controller
             $rawSender = $request->input('sender', '');
             $sender = preg_replace('/[^0-9]/', '', $rawSender);
 
-            // --- FIX BUG (DOUBLE 62) ---
-            // Jika Fonnte mengirim nomor berawalan '62', ubah kembali menjadi '0'
-            // agar saat dibalas, tidak menjadi '62628...' di FonnteService.
             if (str_starts_with($sender, '62')) {
                 $sender = '0' . substr($sender, 2);
             }
-            // ---------------------------
 
             $message = trim($request->input('message') ?? $request->input('text') ?? '');
 
-            Log::info("Fonnte INBOUND [{$sender}]: {$message}");
-
             if (empty($message) || empty($sender)) {
-                return response()->json(['status' => 'ignored'], 200);
+                return response()->json(['status' => 'ignored_empty'], 200);
             }
 
-            // 2. Identifikasi User
+            // 1. Identifikasi User (Abaikan diam-diam jika tidak terdaftar)
             $user = $this->findUserByPhone($sender);
-
             if (!$user) {
-                Log::info("Fonnte: Nomor {$sender} tidak terdaftar.");
-                return response()->json(['status' => 'unregistered'], 200);
+                return response()->json(['status' => 'ignored_unregistered'], 200);
             }
 
             $cleanCommand = strtoupper(trim($message));
+            $validCommands = ['BANTUAN', 'MENU', 'PANDUAN', 'SALDO', 'REKAP', 'RIWAYAT'];
 
-            // 3. Evaluasi Command Bantu Interaktif
-            switch ($cleanCommand) {
-                case 'BANTUAN':
-                case 'MENU':
-                case 'PANDUAN':
-                    $this->replyHelp($sender);
-                    return response()->json(['status' => 'help delivered'], 200);
-
-                case 'SALDO':
-                    $this->replySaldo($user, $sender);
-                    return response()->json(['status' => 'saldo delivered'], 200);
-
-                case 'REKAP':
-                    $this->replyRekap($user, $sender);
-                    return response()->json(['status' => 'rekap delivered'], 200);
-
-                case 'RIWAYAT':
-                    $this->replyRiwayat($user, $sender);
-                    return response()->json(['status' => 'riwayat delivered'], 200);
+            // 2. Evaluasi Command Cepat
+            if (in_array($cleanCommand, $validCommands)) {
+                switch ($cleanCommand) {
+                    case 'BANTUAN':
+                    case 'MENU':
+                    case 'PANDUAN':
+                        $this->replyHelp($sender);
+                        break;
+                    case 'SALDO':
+                        $this->replySaldo($user, $sender);
+                        break;
+                    case 'REKAP':
+                        $this->replyRekap($user, $sender);
+                        break;
+                    case 'RIWAYAT':
+                        $this->replyRiwayat($user, $sender);
+                        break;
+                }
+                return response()->json(['status' => 'command processed'], 200);
             }
 
-            // 4. Evaluasi Format Transaksi
+            // 3. Evaluasi Format Transfer
             if (preg_match('/^transfer\s+/i', $message)) {
                 $this->processTransfer($user, $message, $sender);
                 return response()->json(['status' => 'transfer processed'], 200);
             }
 
-            if (str_contains($message, ':')) {
+            // 4. Evaluasi Format Transaksi Terstruktur (Wajib ada kata Jenis: dan Nominal:)
+            if (preg_match('/jenis\s*:/i', $message) && preg_match('/nominal\s*:/i', $message)) {
                 $this->processStructuredTransaction($user, $message, $sender);
-                return response()->json(['status' => 'structured transaction processed'], 200);
+                return response()->json(['status' => 'transaction processed'], 200);
             }
 
-            // Jika format tidak dikenali
-            FonnteService::send("⚠️ *Perintah Tidak Dikenali*\nKetik *BANTUAN* untuk melihat format yang benar.", $sender);
-            return response()->json(['status' => 'unknown command'], 200);
+            // ==========================================
+            // 5. NORMAL CHAT -> ABAIKAN DIAM-DIAM!
+            // Jika tidak cocok dengan format di atas, bot tidak akan membalas apa-apa.
+            // ==========================================
+            return response()->json(['status' => 'ignored_normal_chat'], 200);
 
         } catch (Throwable $e) {
             Log::error("Fonnte Crash: " . $e->getMessage() . " at Line " . $e->getLine());
             if (!empty($sender)) {
                 FonnteService::send("⚠️ *Gagal Memproses:* " . $e->getMessage(), $sender);
             }
-            return response()->json(['status' => 'error'], 500);
+            // SANGAT PENTING: SELALU RETURN 200 AGAR FONNTE TIDAK MENGIRIM ULANG / SPAM
+            return response()->json(['status' => 'error_handled_gracefully'], 200);
         }
     }
 

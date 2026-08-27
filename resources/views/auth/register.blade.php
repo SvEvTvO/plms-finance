@@ -32,6 +32,24 @@
             <x-input-error :messages="$errors->get('email')" class="mt-2" />
         </div>
 
+        <!-- Nomor WhatsApp -->
+        <div class="mt-4">
+            <label for="whatsapp_number" class="block font-medium text-sm text-slate-700">Nomor WhatsApp</label>
+            <div class="relative mt-1">
+                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
+                    <i class="ti ti-brand-whatsapp text-lg"></i>
+                </div>
+                <input id="whatsapp_number"
+                    class="block w-full pl-10 border-slate-200 focus:border-teal-500 focus:ring-teal-500 rounded-lg shadow-sm"
+                       type="text"
+                       name="whatsapp_number"
+                       value="{{ old('whatsapp_number') }}"
+                       required
+                       placeholder="08xxxxxxxxxx" />
+            </div>
+            <x-input-error :messages="$errors->get('whatsapp_number')" class="mt-2" />
+        </div>
+
         <!-- Password -->
         <div>
             <label for="password" class="block text-sm font-semibold text-slate-700 mb-1">Kata Sandi</label>
