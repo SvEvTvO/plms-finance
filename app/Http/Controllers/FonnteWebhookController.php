@@ -6,7 +6,6 @@ use App\Models\Category;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Wallet;
-use App\Services\FinanceService;
 use App\Services\FonnteService;
 use Carbon\Carbon;
 use Exception;
@@ -16,141 +15,97 @@ use Throwable;
 
 class FonnteWebhookController extends Controller
 {
-    protected $financeService;
+    // KITA HAPUS __construct FinanceService agar tidak Crash
 
-    public function __construct(FinanceService $financeService)
-    {
-        $this->financeService = $financeService;
-    }
-
-    /**
-     * Endpoint utama penerima Webhook dari Fonnte
-     */
     public function handle(Request $request)
     {
-        // 1. Respon jika Fonnte melakukan verifikasi/ping via GET
         if ($request->isMethod('get')) {
-            return response()->json([
-                'status' => 'success',
-                'message' => 'PLMS-Finance Fonnte Webhook is Active!'
-            ], 200);
+            return response()->json(['status' => 'success', 'message' => 'Webhook Active!'], 200);
         }
 
         try {
-            $sender = $request->input('sender'); // Nomor pengirim WhatsApp
-            $message = trim($request->input('message', ''));
+            // 1. BERSIHKAN NOMOR SEJAK AWAL (Buang karakter aneh seperti @c.us dari Fonnte)
+            $rawSender = $request->input('sender', '');
+            $sender = preg_replace('/[^0-9]/', '', $rawSender);
 
-            Log::info("Fonnte Webhook Inbound [{$sender}]: {$message}");
+            // Antisipasi API Fonnte (Bisa pakai key 'message' atau 'text')
+            $message = trim($request->input('message') ?? $request->input('text') ?? '');
+
+            Log::info("Fonnte INBOUND [{$sender}]: {$message}");
 
             if (empty($message) || empty($sender)) {
-                return response()->json(['status' => 'ignored', 'message' => 'Empty sender or message'], 200);
+                return response()->json(['status' => 'ignored'], 200);
             }
 
-            // 2. Identifikasi User berdasarkan nomor WhatsApp
+            // 2. Identifikasi User
             $user = $this->findUserByPhone($sender);
 
             if (!$user) {
-                $msg = "⚠️ *Nomor Tidak Terdaftar*\n\n"
-                     . "Nomor WhatsApp Anda ({$sender}) belum terhubung dengan akun *PLMS Finance*.\n"
-                     . "Silakan daftarkan nomor ini di menu Pengaturan Profil pada aplikasi web.";
-                FonnteService::send($msg, $sender);
-                return response()->json(['status' => 'unregistered user'], 200);
+                // Jika nomor tidak terdaftar, abaikan saja agar tidak spam ke nomor orang lain
+                Log::info("Fonnte: Nomor {$sender} tidak terdaftar.");
+                return response()->json(['status' => 'unregistered'], 200);
             }
 
             $cleanCommand = strtoupper(trim($message));
 
-            // 3. Command Khusus Admin
-            if ($user->is_admin) {
-                if ($cleanCommand === 'ADMIN' || $cleanCommand === 'STATISTIK') {
-                    $totalUsers = User::count();
-                    $todayTransactions = Transaction::whereDate('created_at', today())->count();
-                    $todayVolume = Transaction::whereDate('created_at', today())->sum('amount');
-
-                    $msg = "🛡️ *PLMS SYSTEM MONITORING (ADMIN)*\n\n"
-                        . "👥 *Total Pengguna:* {$totalUsers} Akun\n"
-                        . "📝 *Transaksi Hari Ini:* {$todayTransactions} Transaksi\n"
-                        . "💰 *Volume Perputaran:* Rp " . number_format($todayVolume, 0, ',', '.') . "\n\n"
-                        . "_Server Status: Active_";
-
-                    FonnteService::send($msg, $sender);
-                    return response()->json(['status' => 'admin stats sent'], 200);
-                }
-            }
-
-            // 4. Evaluasi Command Bantu
+            // 3. Evaluasi Command Bantu Interaktif
             switch ($cleanCommand) {
                 case 'BANTUAN':
                 case 'MENU':
-                case 'HELP':
                 case 'PANDUAN':
                     $this->replyHelp($sender);
                     return response()->json(['status' => 'help delivered'], 200);
 
                 case 'SALDO':
-                case 'DOMPET':
                     $this->replySaldo($user, $sender);
                     return response()->json(['status' => 'saldo delivered'], 200);
 
                 case 'REKAP':
-                case 'RINGKASAN':
-                case 'LAPORAN':
                     $this->replyRekap($user, $sender);
                     return response()->json(['status' => 'rekap delivered'], 200);
 
                 case 'RIWAYAT':
-                case 'HISTORY':
-                case 'LOG':
                     $this->replyRiwayat($user, $sender);
                     return response()->json(['status' => 'riwayat delivered'], 200);
             }
 
-            // 5. Evaluasi Format Transaksi
-            // A. Transfer Antar Dompet
+            // 4. Evaluasi Format Transaksi
             if (preg_match('/^transfer\s+/i', $message)) {
                 $this->processTransfer($user, $message, $sender);
                 return response()->json(['status' => 'transfer processed'], 200);
             }
 
-            // B. Format Terstruktur Multi-Baris
             if (str_contains($message, ':')) {
                 $this->processStructuredTransaction($user, $message, $sender);
                 return response()->json(['status' => 'structured transaction processed'], 200);
             }
 
-            // C. Format Natural 1 Baris
-            $this->processNaturalTransaction($user, $message, $sender);
-            return response()->json(['status' => 'natural transaction processed'], 200);
+            // Jika bukan format di atas, kirim error format tidak dikenali
+            FonnteService::send("⚠️ *Perintah Tidak Dikenali*\nKetik *BANTUAN* untuk melihat format yang benar.", $sender);
+            return response()->json(['status' => 'unknown command'], 200);
 
         } catch (Throwable $e) {
-            Log::error("Fonnte Webhook Error: " . $e->getMessage() . " at " . $e->getFile() . ":" . $e->getLine());
-
+            Log::error("Fonnte Crash: " . $e->getMessage() . " at Line " . $e->getLine());
             if (!empty($sender)) {
-                FonnteService::send("⚠️ *Terjadi Kesalahan:* " . $e->getMessage(), $sender);
+                FonnteService::send("⚠️ *Gagal Memproses:* " . $e->getMessage(), $sender);
             }
-
-            return response()->json(['status' => 'error', 'message' => $e->getMessage()], 200);
+            return response()->json(['status' => 'error'], 500);
         }
     }
 
-    /**
-     * Helper: Cari user berdasarkan variasi nomor HP yang fleksibel
-     */
     private function findUserByPhone(string $sender): ?User
     {
-        $clean = preg_replace('/[^0-9]/', '', $sender);
-
-        // Ambil 9-10 digit terakhir untuk pencocokan akurat
-        $lastDigits = substr($clean, -9);
-
+        // Ambil 9 digit terakhir untuk menghindari error format 08/62/dst
+        $lastDigits = substr($sender, -9);
         return User::where('whatsapp_number', 'LIKE', "%{$lastDigits}%")->first();
     }
 
     private function replyHelp(string $sender): void
     {
         $text = "🤖 *PANDUAN BOT PLMS FINANCE*\n\n"
-              . "📋 *Command Bantu:*\n"
-              . "• *SALDO* : Cek saldo semua dompet\n"
-              . "• *REKAP* : Rekap pemasukan & pengeluaran bulan ini\n"
+              . "📋 *Command Cepat:*\n"
+              . "• *SALDO* : Cek saldo dompet\n"
+              . "• *REKAP* : Rekap bulan ini\n"
               . "• *RIWAYAT* : 5 transaksi terakhir\n"
               . "• *BANTUAN* : Menampilkan menu ini\n\n"
               . "📝 *Format Catat Transaksi:*\n"
@@ -158,7 +113,7 @@ class FonnteWebhookController extends Controller
               . "Kategori : Makanan\n"
               . "Nominal : 25000\n"
               . "Dompet : Cash\n"
-              . "Keterangan : Makan Siang\n\n"
+              . "Keterangan : Nasi Padang\n\n"
               . "🔄 *Format Transfer:*\n"
               . "Transfer 50000 BCA ke GoPay";
 
@@ -170,7 +125,7 @@ class FonnteWebhookController extends Controller
         $wallets = Wallet::where('user_id', $user->id)->where('is_active', true)->get();
 
         if ($wallets->isEmpty()) {
-            FonnteService::send("⚠️ Anda belum memiliki dompet aktif di sistem.", $sender);
+            FonnteService::send("⚠️ Anda belum memiliki dompet aktif.", $sender);
             return;
         }
 
@@ -180,136 +135,47 @@ class FonnteWebhookController extends Controller
             $lines[] = "• *{$w->name}:* Rp " . number_format($w->balance, 0, ',', '.');
         }
 
-        $msg = "💳 *INFORMASI SALDO DOMPET*\n\n"
-             . implode("\n", $lines) . "\n"
-             . "────────────────────\n"
-             . "💰 *Total Aset:* Rp " . number_format($total, 0, ',', '.') . "\n\n"
-             . "_PLMS Finance Management_";
-
+        $msg = "💳 *INFORMASI SALDO*\n\n" . implode("\n", $lines) . "\n────────────────\n💰 *Total Aset:* Rp " . number_format($total, 0, ',', '.');
         FonnteService::send($msg, $sender);
     }
 
     private function replyRekap(User $user, string $sender): void
     {
-        $startOfMonth = Carbon::now()->startOfMonth()->toDateString();
-        $endOfMonth = Carbon::now()->endOfMonth()->toDateString();
+        $start = Carbon::now()->startOfMonth()->toDateString();
+        $end = Carbon::now()->endOfMonth()->toDateString();
 
-        $income = Transaction::where('user_id', $user->id)
-            ->where('type', 'income')
-            ->whereBetween('date', [$startOfMonth, $endOfMonth])
-            ->sum('amount');
-
-        $expense = Transaction::where('user_id', $user->id)
-            ->where('type', 'expense')
-            ->whereBetween('date', [$startOfMonth, $endOfMonth])
-            ->sum('amount');
-
+        $income = Transaction::where('user_id', $user->id)->where('type', 'income')->whereBetween('date', [$start, $end])->sum('amount');
+        $expense = Transaction::where('user_id', $user->id)->where('type', 'expense')->whereBetween('date', [$start, $end])->sum('amount');
         $net = $income - $expense;
-        $netSign = $net >= 0 ? '🟢 Surplus' : '🔴 Defisit';
-        $monthName = Carbon::now()->translatedFormat('F Y');
 
-        $msg = "📊 *REKAP FINANSIAL ({$monthName})*\n\n"
-             . "🟢 *Pemasukan:* Rp " . number_format($income, 0, ',', '.') . "\n"
-             . "🔴 *Pengeluaran:* Rp " . number_format($expense, 0, ',', '.') . "\n"
-             . "────────────────────\n"
-             . "📈 *Cashflow:* Rp " . number_format($net, 0, ',', '.') . " ({$netSign})\n\n"
-             . "_PLMS Finance Management_";
-
+        $msg = "📊 *REKAP BULAN INI*\n\n🟢 *Masuk:* Rp " . number_format($income, 0, ',', '.') . "\n🔴 *Keluar:* Rp " . number_format($expense, 0, ',', '.') . "\n────────────────\n📈 *Sisa:* Rp " . number_format($net, 0, ',', '.');
         FonnteService::send($msg, $sender);
     }
 
     private function replyRiwayat(User $user, string $sender): void
     {
-        $transactions = Transaction::with(['wallet', 'category', 'sourceWallet', 'destinationWallet'])
-            ->where('user_id', $user->id)
-            ->orderByDesc('date')
-            ->orderByDesc('id')
-            ->take(5)
-            ->get();
-
+        $transactions = Transaction::with(['wallet', 'sourceWallet', 'destinationWallet'])->where('user_id', $user->id)->orderByDesc('date')->orderByDesc('id')->take(5)->get();
         if ($transactions->isEmpty()) {
-            FonnteService::send("Belum ada riwayat transaksi yang tercatat.", $sender);
+            FonnteService::send("Belum ada riwayat transaksi.", $sender);
             return;
         }
-
         $lines = [];
         foreach ($transactions as $idx => $t) {
-            $num = $idx + 1;
             $amt = 'Rp ' . number_format($t->amount, 0, ',', '.');
-            $date = Carbon::parse($t->date)->format('d/m');
-
             if ($t->type === 'transfer') {
-                $src = $t->sourceWallet->name ?? 'Asal';
-                $dst = $t->destinationWallet->name ?? 'Tujuan';
-                $lines[] = "{$num}. [🔄] {$amt} ({$src} ➔ {$dst}) _{$date}_";
-            } elseif ($t->type === 'income') {
-                $lines[] = "{$num}. [🟢] {$t->description} - {$amt} ({$t->wallet->name}) _{$date}_";
+                $lines[] = ($idx + 1) . ". [🔄] {$amt} ({$t->sourceWallet->name} ➔ {$t->destinationWallet->name})";
             } else {
-                $lines[] = "{$num}. [🔴] {$t->description} - {$amt} ({$t->wallet->name}) _{$date}_";
+                $icon = $t->type === 'income' ? '🟢' : '🔴';
+                $lines[] = ($idx + 1) . ". [{$icon}] {$t->description} - {$amt}";
             }
         }
-
-        $msg = "⏱ *5 TRANSAKSI TERAKHIR*\n\n"
-             . implode("\n", $lines) . "\n\n"
-             . "_PLMS Finance Management_";
-
-        FonnteService::send($msg, $sender);
-    }
-
-    private function processTransfer(User $user, string $message, string $sender): void
-    {
-        if (!preg_match('/transfer\s+([0-9\.\,kK]+)\s+(.+?)\s+(?:ke|>)\s+(.+)/i', $message, $matches)) {
-            throw new Exception("Format transfer tidak dikenali.\nContoh: *Transfer 50000 BCA ke GoPay*");
-        }
-
-        $amount = $this->parseAmount($matches[1]);
-        $sourceName = trim($matches[2]);
-        $destName = trim($matches[3]);
-
-        $sourceWallet = Wallet::where('user_id', $user->id)
-            ->where('name', 'ILIKE', "%{$sourceName}%")
-            ->where('is_active', true)
-            ->first();
-
-        $destWallet = Wallet::where('user_id', $user->id)
-            ->where('name', 'ILIKE', "%{$destName}%")
-            ->where('is_active', true)
-            ->first();
-
-        if (!$sourceWallet || !$destWallet) {
-            throw new Exception("Salah satu dompet tidak ditemukan atau tidak aktif.");
-        }
-
-        if ($sourceWallet->id === $destWallet->id) {
-            throw new Exception("Dompet asal dan tujuan tidak boleh sama.");
-        }
-
-        $payload = [
-            'user_id' => $user->id,
-            'type' => 'transfer',
-            'amount' => $amount,
-            'date' => now()->toDateString(),
-            'description' => "Transfer via WA",
-            'source_wallet_id' => $sourceWallet->id,
-            'destination_wallet_id' => $destWallet->id,
-        ];
-
-        $this->financeService->createTransaction($payload);
-
-        $msg = "🔄 *Transfer Saldo Berhasil!*\n\n"
-             . "💰 *Nominal:* Rp " . number_format($amount, 0, ',', '.') . "\n"
-             . "📤 *Dari:* {$sourceWallet->name} (Sisa: Rp " . number_format($sourceWallet->fresh()->balance, 0, ',', '.') . ")\n"
-             . "📥 *Ke:* {$destWallet->name} (Total: Rp " . number_format($destWallet->fresh()->balance, 0, ',', '.') . ")\n\n"
-             . "_PLMS Finance Management_";
-
-        FonnteService::send($msg, $sender);
+        FonnteService::send("⏱ *5 TRANSAKSI TERAKHIR*\n\n" . implode("\n\n", $lines), $sender);
     }
 
     private function processStructuredTransaction(User $user, string $message, string $sender): void
     {
         $lines = explode("\n", $message);
         $dataMap = [];
-
         foreach ($lines as $line) {
             if (str_contains($line, ':')) {
                 [$key, $val] = explode(':', $line, 2);
@@ -318,7 +184,7 @@ class FonnteWebhookController extends Controller
         }
 
         if (!isset($dataMap['jenis']) || !isset($dataMap['nominal'])) {
-            throw new Exception("Format salah. Mohon lengkapi baris *Jenis* dan *Nominal*.");
+            throw new Exception("Format salah. Pastikan baris *Jenis* dan *Nominal* sudah benar.");
         }
 
         $type = str_contains(strtolower($dataMap['jenis']), 'masuk') ? 'income' : 'expense';
@@ -327,151 +193,96 @@ class FonnteWebhookController extends Controller
         $wallet = $this->findWalletOrDefault($user->id, $dataMap['dompet'] ?? null);
         $category = $this->findOrCreateCategory($user->id, $type, $dataMap['kategori'] ?? null);
 
-        $payload = [
+        // 1. Simpan Transaksi
+        Transaction::create([
             'user_id' => $user->id,
             'type' => $type,
             'amount' => $amount,
             'date' => now()->toDateString(),
             'wallet_id' => $wallet->id,
             'category_id' => $category->id,
-            'description' => $dataMap['keterangan'] ?? $dataMap['catatan'] ?? $dataMap['ket'] ?? '-',
-        ];
+            'description' => $dataMap['keterangan'] ?? '-',
+        ]);
 
-        $this->financeService->createTransaction($payload);
-        $this->sendTransactionSuccessReceipt($payload, $wallet, $category, $sender);
+        // 2. Update Saldo Dompet
+        if ($type === 'income') {
+            $wallet->increment('balance', $amount);
+        } else {
+            $wallet->decrement('balance', $amount);
+        }
+
+        $this->sendSuccess($type, $amount, $wallet, $category, $dataMap['keterangan'] ?? '-', $sender);
     }
 
-    private function processNaturalTransaction(User $user, string $message, string $sender): void
+    private function processTransfer(User $user, string $message, string $sender): void
     {
-        $tokens = preg_split('/\s+/', $message);
-        if (empty($tokens)) {
-            throw new Exception("Pesan kosong.");
+        if (!preg_match('/transfer\s+([0-9\.\,kK]+)\s+(.+?)\s+(?:ke|>)\s+(.+)/i', $message, $matches)) {
+            throw new Exception("Format transfer salah.\nContoh: *Transfer 50000 BCA ke GoPay*");
         }
 
-        $isIncome = false;
-        if ($tokens[0] === '+' || strtolower($tokens[0]) === 'masuk') {
-            $isIncome = true;
-            array_shift($tokens);
+        $amount = $this->parseAmount($matches[1]);
+        $sourceWallet = $this->findWalletOrDefault($user->id, trim($matches[2]));
+        $destWallet = $this->findWalletOrDefault($user->id, trim($matches[3]));
+
+        if ($sourceWallet->id === $destWallet->id) {
+            throw new Exception("Dompet asal dan tujuan tidak boleh sama.");
         }
 
-        $type = $isIncome ? 'income' : 'expense';
+        // 1. Update Saldo (Kurangi asal, tambah tujuan)
+        $sourceWallet->decrement('balance', $amount);
+        $destWallet->increment('balance', $amount);
 
-        $amountIndex = -1;
-        $amount = 0;
-
-        foreach ($tokens as $idx => $token) {
-            $parsedVal = $this->parseAmount($token, false);
-            if ($parsedVal > 0) {
-                $amount = $parsedVal;
-                $amountIndex = $idx;
-                break;
-            }
-        }
-
-        if ($amountIndex === -1 || $amount <= 0) {
-            throw new Exception("Perintah tidak dikenali. Ketik *BANTUAN* untuk melihat format.");
-        }
-
-        $descWords = array_slice($tokens, 0, $amountIndex);
-        $description = !empty($descWords) ? implode(' ', $descWords) : ($isIncome ? 'Pemasukan' : 'Pengeluaran');
-
-        $walletWords = array_slice($tokens, $amountIndex + 1);
-        $walletQuery = !empty($walletWords) ? implode(' ', $walletWords) : null;
-
-        $wallet = $this->findWalletOrDefault($user->id, $walletQuery);
-        $category = $this->findOrCreateCategory($user->id, $type, $description);
-
-        $payload = [
+        // 2. Simpan Transaksi
+        Transaction::create([
             'user_id' => $user->id,
-            'type' => $type,
+            'type' => 'transfer',
             'amount' => $amount,
             'date' => now()->toDateString(),
-            'wallet_id' => $wallet->id,
-            'category_id' => $category->id,
-            'description' => $description,
-        ];
+            'description' => "Transfer antar dompet",
+            'source_wallet_id' => $sourceWallet->id,
+            'destination_wallet_id' => $destWallet->id,
+        ]);
 
-        $this->financeService->createTransaction($payload);
-        $this->sendTransactionSuccessReceipt($payload, $wallet, $category, $sender);
-    }
-
-    private function sendTransactionSuccessReceipt(array $payload, Wallet $wallet, Category $category, string $sender): void
-    {
-        $typeLabel = $payload['type'] === 'income' ? '🟢 Pemasukan' : '🔴 Pengeluaran';
-        $nominal = 'Rp ' . number_format($payload['amount'], 0, ',', '.');
-        $sisaSaldo = 'Rp ' . number_format($wallet->fresh()->balance, 0, ',', '.');
-
-        $msg = "✅ *Transaksi Berhasil Dicatat!*\n\n"
-             . "📌 *Jenis:* {$typeLabel}\n"
-             . "📂 *Kategori:* {$category->name}\n"
-             . "💰 *Nominal:* {$nominal}\n"
-             . "💳 *Dompet:* {$wallet->name} (Sisa: {$sisaSaldo})\n"
-             . "📝 *Catatan:* {$payload['description']}\n\n"
-             . "_PLMS Finance Management_";
-
+        $msg = "🔄 *Transfer Berhasil!*\n\n💰 *Nominal:* Rp " . number_format($amount, 0, ',', '.') . "\n📤 *Dari:* {$sourceWallet->name} (Sisa: Rp " . number_format($sourceWallet->balance, 0, ',', '.') . ")\n📥 *Ke:* {$destWallet->name} (Total: Rp " . number_format($destWallet->balance, 0, ',', '.') . ")";
         FonnteService::send($msg, $sender);
     }
 
-    private function parseAmount(string $val, bool $strict = true): float
+    private function sendSuccess(string $type, float $amount, Wallet $wallet, Category $category, string $desc, string $sender): void
+    {
+        $icon = $type === 'income' ? '🟢' : '🔴';
+        $typeLabel = $type === 'income' ? 'Pemasukan' : 'Pengeluaran';
+
+        $msg = "✅ *Transaksi Dicatat!*\n\n📌 *Jenis:* {$icon} {$typeLabel}\n📂 *Kategori:* {$category->name}\n💰 *Nominal:* Rp " . number_format($amount, 0, ',', '.') . "\n💳 *Dompet:* {$wallet->name} (Sisa: Rp " . number_format($wallet->balance, 0, ',', '.') . ")\n📝 *Catatan:* {$desc}";
+        FonnteService::send($msg, $sender);
+    }
+
+    private function parseAmount(string $val): float
     {
         $val = strtolower(trim($val));
-        $multiplier = 1;
+        $multiplier = str_ends_with($val, 'k') ? 1000 : 1;
+        $num = (float) preg_replace('/[^0-9]/', '', $val) * $multiplier;
 
-        if (str_ends_with($val, 'k')) {
-            $multiplier = 1000;
-            $val = substr($val, 0, -1);
-        }
-
-        $cleaned = preg_replace('/[^0-9]/', '', $val);
-        $num = (float) $cleaned * $multiplier;
-
-        if ($strict && $num <= 0) {
-            throw new Exception("Nominal harus berupa angka yang valid.");
-        }
-
+        if ($num <= 0) throw new Exception("Nominal tidak valid.");
         return $num;
     }
 
     private function findWalletOrDefault(int $userId, ?string $query): Wallet
     {
         if (!empty($query)) {
-            $wallet = Wallet::where('user_id', $userId)
-                ->where('name', 'ILIKE', "%{$query}%")
-                ->where('is_active', true)
-                ->first();
-
+            $wallet = Wallet::where('user_id', $userId)->where('name', 'ILIKE', "%{$query}%")->first();
             if ($wallet) return $wallet;
         }
-
-        $defaultWallet = Wallet::where('user_id', $userId)->where('is_default', true)->first()
-                      ?? Wallet::where('user_id', $userId)->where('is_active', true)->first();
-
-        if (!$defaultWallet) {
-            throw new Exception("Anda belum memiliki dompet aktif.");
-        }
-
-        return $defaultWallet;
+        $wallet = Wallet::where('user_id', $userId)->where('is_default', true)->first() ?? Wallet::where('user_id', $userId)->first();
+        if (!$wallet) throw new Exception("Dompet tidak ditemukan.");
+        return $wallet;
     }
 
     private function findOrCreateCategory(int $userId, string $type, ?string $name): Category
     {
-        $catName = !empty($name) ? trim($name) : ($type === 'income' ? 'Pemasukan Umum' : 'Pengeluaran Umum');
-
-        $category = Category::where('user_id', $userId)
-            ->where('type', $type)
-            ->where('name', 'ILIKE', "%{$catName}%")
-            ->first();
-
-        if (!$category) {
-            $category = Category::create([
-                'user_id' => $userId,
-                'name' => ucfirst($catName),
-                'type' => $type,
-                'icon' => $type === 'income' ? 'ti ti-arrow-down-left' : 'ti ti-arrow-up-right',
-                'color' => $type === 'income' ? '#10b981' : '#ef4444',
-            ]);
-        }
-
-        return $category;
+        $catName = !empty($name) ? trim($name) : 'Umum';
+        return Category::firstOrCreate(
+            ['user_id' => $userId, 'type' => $type, 'name' => ucfirst($catName)],
+            ['icon' => 'ti ti-tag', 'color' => '#64748b']
+        );
     }
 }
