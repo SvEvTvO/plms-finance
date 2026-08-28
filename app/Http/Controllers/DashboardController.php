@@ -2,48 +2,63 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Wallet;
 use App\Models\Transaction;
-use Illuminate\Http\Request;
+use App\Models\Wallet;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class DashboardController extends Controller
 {
     public function index()
     {
-        $userId = auth()->id();
-        $now = Carbon::now();
+        $userId = Auth::id();
+        $today = Carbon::today();
 
-        // 1. Hitung Total Saldo dari semua dompet (aktif maupun nonaktif)
-        $totalBalance = Wallet::where('user_id', $userId)->sum('balance');
+        // 1. Data untuk Kartu Ringkasan (Summary Cards)
+        $totalBalance = Wallet::where('user_id', $userId)->where('is_active', true)->sum('balance');
 
-        // 2. Hitung Total Pemasukan Bulan Ini
         $incomeThisMonth = Transaction::where('user_id', $userId)
             ->where('type', 'income')
-            ->whereMonth('date', $now->month)
-            ->whereYear('date', $now->year)
+            ->whereMonth('date', $today->month)
             ->sum('amount');
 
-        // 3. Hitung Total Pengeluaran Bulan Ini
         $expenseThisMonth = Transaction::where('user_id', $userId)
             ->where('type', 'expense')
-            ->whereMonth('date', $now->month)
-            ->whereYear('date', $now->year)
+            ->whereMonth('date', $today->month)
             ->sum('amount');
 
-        // 4. Ambil 5 Transaksi Terakhir untuk ditampilkan di ringkasan
-        $recentTransactions = Transaction::with(['wallet', 'category', 'sourceWallet', 'destinationWallet'])
+        // 2. Data Grafik: 7 Hari Terakhir
+        $chartDates = [];
+        $chartIncome = [];
+        $chartExpense = [];
+
+        for ($i = 6; $i >= 0; $i--) {
+            $date = Carbon::today()->subDays($i);
+            $chartDates[] = $date->format('d M');
+
+            $chartIncome[] = Transaction::where('user_id', $userId)
+                ->where('type', 'income')
+                ->whereDate('date', $date)
+                ->sum('amount');
+
+            $chartExpense[] = Transaction::where('user_id', $userId)
+                ->where('type', 'expense')
+                ->whereDate('date', $date)
+                ->sum('amount');
+        }
+
+        // 3. Transaksi Terakhir (Untuk tabel di sebelah grafik)
+        $recentTransactions = Transaction::with(['wallet', 'category'])
             ->where('user_id', $userId)
             ->orderByDesc('date')
             ->orderByDesc('id')
-            ->limit(5)
+            ->take(5)
             ->get();
 
         return view('dashboard', compact(
-            'totalBalance', 
-            'incomeThisMonth', 
-            'expenseThisMonth', 
-            'recentTransactions'
+            'totalBalance', 'incomeThisMonth', 'expenseThisMonth',
+            'chartDates', 'chartIncome', 'chartExpense', 'recentTransactions'
         ));
     }
 }

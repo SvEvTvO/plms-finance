@@ -1,192 +1,198 @@
 <x-app-layout>
+    <!-- Tambahkan CDN ApexCharts di bagian atas -->
     <x-slot name="header">
-        <div class="flex justify-between items-center">
-            <h2 class="text-2xl font-heading font-bold text-heading">Overview Keuangan</h2>
-            <div class="text-sm font-medium text-muted bg-background px-4 py-2 rounded-full border border-border">
+        <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+        <div class="flex items-center justify-between">
+            <h2 class="text-2xl font-bold text-slate-800 tracking-tight">
+                Halo, {{ explode(' ', Auth::user()->name)[0] }}! 👋
+            </h2>
+            <div class="text-sm font-medium text-slate-500 bg-white px-4 py-2 rounded-full shadow-sm border border-slate-100">
                 {{ \Carbon\Carbon::now()->translatedFormat('d F Y') }}
             </div>
         </div>
     </x-slot>
 
-    <!-- SECTION 1: METRIK KEUANGAN (CARDS) -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        
-        <!-- Total Kekayaan (Hero Card dengan Gradient Premium) -->
-        <div class="lg:col-span-1 bg-gradient-to-br from-primary to-primary-600 rounded-2xl p-6 shadow-lg shadow-primary/30 relative overflow-hidden text-surface">
-            <!-- Dekorasi Pattern Background -->
-            <div class="absolute -top-10 -right-10 opacity-20">
-                <i class="ti ti-wallet text-[120px]"></i>
-            </div>
-            <div class="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-black/10 to-transparent"></div>
-            
-            <div class="relative z-10 flex flex-col h-full justify-between">
-                <div>
-                    <p class="text-sm font-medium text-surface/80 mb-1 flex items-center">
-                        <i class="ti ti-building-bank mr-2 text-lg"></i> Total Kekayaan
-                    </p>
-                    <h3 class="text-4xl font-heading font-bold tracking-tight">
-                        Rp {{ number_format($totalBalance, 0, ',', '.') }}
-                    </h3>
-                </div>
-                <div class="mt-6 pt-4 border-t border-surface/20 flex justify-between items-center">
-                    <p class="text-xs font-medium text-surface/80">Dari seluruh dompet & rekening</p>
-                    <a href="{{ route('wallets.index') }}" class="w-8 h-8 rounded-full bg-surface/20 flex items-center justify-center hover:bg-surface/30 transition-colors">
-                        <i class="ti ti-arrow-right text-surface"></i>
-                    </a>
-                </div>
-            </div>
-        </div>
+    <div class="py-6 space-y-6">
 
-        <!-- Arus Kas (Income & Expense) -->
-        <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-            <!-- Pemasukan Bulan Ini -->
-            <div class="bg-surface rounded-2xl border border-border p-6 shadow-sm flex flex-col justify-between hover:border-success/30 transition-colors group">
+        <!-- 3 Kartu Ringkasan Utama -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Kartu Total Saldo -->
+            <div class="bg-gradient-to-br from-teal-500 to-emerald-600 rounded-2xl p-6 text-white shadow-md shadow-teal-600/20 relative overflow-hidden">
+                <i class="ti ti-wallet absolute -right-4 -bottom-4 text-9xl opacity-10 rotate-12"></i>
+                <p class="text-teal-50 text-sm font-medium tracking-wide uppercase mb-1">Total Kekayaan</p>
+                <h3 class="text-3xl font-bold">Rp {{ number_format($totalBalance, 0, ',', '.') }}</h3>
+                <div class="mt-4 flex items-center gap-2 text-xs bg-black/10 w-fit px-3 py-1.5 rounded-lg backdrop-blur-sm">
+                    <i class="ti ti-building-bank text-base"></i>
+                    Dari seluruh dompet aktif
+                </div>
+            </div>
+
+            <!-- Kartu Pemasukan -->
+            <div class="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm flex flex-col justify-between">
                 <div class="flex justify-between items-start mb-4">
-                    <div class="w-12 h-12 rounded-xl bg-success/10 text-success flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <i class="ti ti-arrow-down-left text-2xl"></i>
+                    <div>
+                        <p class="text-slate-500 text-sm font-medium tracking-wide uppercase mb-1">Pemasukan Bulan Ini</p>
+                        <h3 class="text-2xl font-bold text-slate-800">Rp {{ number_format($incomeThisMonth, 0, ',', '.') }}</h3>
                     </div>
-                    <span class="px-2.5 py-1 bg-background text-muted text-xs font-bold rounded-full border border-border uppercase tracking-wide">
-                        {{ \Carbon\Carbon::now()->translatedFormat('F') }}
-                    </span>
-                </div>
-                <div>
-                    <p class="text-sm font-medium text-muted mb-1">Pemasukan Bulan Ini</p>
-                    <h3 class="text-3xl font-heading font-bold text-heading">
-                        Rp {{ number_format($incomeThisMonth, 0, ',', '.') }}
-                    </h3>
+                    <div class="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
+                        <i class="ti ti-arrow-down-left text-xl"></i>
+                    </div>
                 </div>
             </div>
 
-            <!-- Pengeluaran Bulan Ini -->
-            <div class="bg-surface rounded-2xl border border-border p-6 shadow-sm flex flex-col justify-between hover:border-danger/30 transition-colors group">
+            <!-- Kartu Pengeluaran -->
+            <div class="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm flex flex-col justify-between">
                 <div class="flex justify-between items-start mb-4">
-                    <div class="w-12 h-12 rounded-xl bg-danger/10 text-danger flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <i class="ti ti-arrow-up-right text-2xl"></i>
+                    <div>
+                        <p class="text-slate-500 text-sm font-medium tracking-wide uppercase mb-1">Pengeluaran Bulan Ini</p>
+                        <h3 class="text-2xl font-bold text-slate-800">Rp {{ number_format($expenseThisMonth, 0, ',', '.') }}</h3>
                     </div>
-                    <span class="px-2.5 py-1 bg-background text-muted text-xs font-bold rounded-full border border-border uppercase tracking-wide">
-                        {{ \Carbon\Carbon::now()->translatedFormat('F') }}
-                    </span>
-                </div>
-                <div>
-                    <p class="text-sm font-medium text-muted mb-1">Pengeluaran Bulan Ini</p>
-                    <h3 class="text-3xl font-heading font-bold text-heading">
-                        Rp {{ number_format($expenseThisMonth, 0, ',', '.') }}
-                    </h3>
+                    <div class="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                        <i class="ti ti-arrow-up-right text-xl"></i>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- SECTION 2: TRANSAKSI TERAKHIR -->
-    <div class="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm w-full mb-8">
-        <div class="p-6 border-b border-border flex justify-between items-center">
-            <h3 class="text-lg font-heading font-bold text-heading flex items-center">
-                <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center mr-3">
-                    <i class="ti ti-history text-lg"></i>
+        <!-- Area Grafik & Transaksi Terakhir -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- GRAFIK SCATTER (Lebar 2 Kolom) -->
+            <div class="lg:col-span-2 bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-bold text-slate-800">Aktivitas Arus Kas</h3>
+                    <span class="text-xs font-semibold bg-slate-100 text-slate-600 px-3 py-1 rounded-full">7 Hari Terakhir</span>
                 </div>
-                Transaksi Terakhir
-            </h3>
-            <a href="{{ route('transactions.index') }}" class="px-4 py-2 bg-background border border-border rounded-lg text-sm font-medium text-heading hover:bg-border/50 hover:text-primary transition-colors">
-                Lihat Semua
-            </a>
-        </div>
-        
-        <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse">
-                <tbody class="divide-y divide-border">
+                <!-- Wadah untuk Chart -->
+                <div id="cashflowChart" class="w-full h-72"></div>
+            </div>
+
+            <!-- TRANSAKSI TERAKHIR (Lebar 1 Kolom) -->
+            <div class="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm flex flex-col">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-bold text-slate-800">Aktivitas Terakhir</h3>
+                    <a href="{{ url('/transactions') }}" class="text-sm font-semibold text-teal-600 hover:text-teal-700 transition">Lihat Semua</a>
+                </div>
+
+                <div class="space-y-5 flex-1 overflow-y-auto">
                     @forelse($recentTransactions as $trx)
-                        <tr class="hover:bg-background/50 transition-colors group">
-                            <!-- Kolom 1: Ikon Besar & Nama Kategori -->
-                            <td class="px-6 py-4 w-1/3">
-                                <div class="flex items-center space-x-4">
-                                    @if($trx->type === 'transfer')
-                                        <div class="w-12 h-12 rounded-full bg-info/10 text-info flex items-center justify-center flex-shrink-0">
-                                            <i class="ti ti-arrows-exchange text-2xl"></i>
-                                        </div>
-                                        <div>
-                                            <p class="text-base font-bold text-heading">Transfer Saldo</p>
-                                            <p class="text-xs text-muted mt-0.5 uppercase tracking-wider">{{ $trx->type }}</p>
-                                        </div>
-                                    @elseif($trx->type === 'income')
-                                        <div class="w-12 h-12 rounded-full bg-success/10 text-success flex items-center justify-center flex-shrink-0">
-                                            <i class="ti {{ $trx->category->icon ?? 'ti-circle' }} text-2xl"></i>
-                                        </div>
-                                        <div>
-                                            <p class="text-base font-bold text-heading">{{ $trx->category->name ?? 'Tanpa Kategori' }}</p>
-                                            <p class="text-xs text-muted mt-0.5 uppercase tracking-wider">{{ $trx->type }}</p>
-                                        </div>
-                                    @else
-                                        <div class="w-12 h-12 rounded-full bg-danger/10 text-danger flex items-center justify-center flex-shrink-0">
-                                            <i class="ti {{ $trx->category->icon ?? 'ti-circle' }} text-2xl"></i>
-                                        </div>
-                                        <div>
-                                            <p class="text-base font-bold text-heading">{{ $trx->category->name ?? 'Tanpa Kategori' }}</p>
-                                            <p class="text-xs text-muted mt-0.5 uppercase tracking-wider">{{ $trx->type }}</p>
-                                        </div>
-                                    @endif
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full flex items-center justify-center {{ $trx->type == 'income' ? 'bg-teal-50 text-teal-600' : 'bg-rose-50 text-rose-600' }}">
+                                    <i class="{{ $trx->category->icon ?? 'ti ti-tag' }} text-lg"></i>
                                 </div>
-                            </td>
-
-                            <!-- Kolom 2: Tanggal & Dompet -->
-                            <td class="px-6 py-4">
-                                <div class="flex flex-col space-y-1.5">
-                                    <div class="flex items-center text-sm font-medium text-heading">
-                                        <i class="ti ti-calendar text-muted mr-2"></i>
-                                        {{ \Carbon\Carbon::parse($trx->date)->translatedFormat('d M Y') }}
-                                    </div>
-                                    
-                                    @if($trx->type === 'transfer')
-                                        <div class="text-xs text-muted flex items-center">
-                                            <i class="ti ti-wallet text-muted mr-2 text-sm"></i>
-                                            <span class="font-medium text-danger">{{ $trx->sourceWallet->name ?? '?' }}</span> 
-                                            <i class="ti ti-arrow-right mx-1 text-[10px]"></i> 
-                                            <span class="font-medium text-success">{{ $trx->destinationWallet->name ?? '?' }}</span>
-                                        </div>
-                                    @else
-                                        <div class="text-xs text-muted flex items-center">
-                                            <i class="ti ti-wallet text-muted mr-2 text-sm"></i>
-                                            <div class="w-2 h-2 rounded-full mr-1.5" style="background-color: {{ $trx->wallet->color ?? '#ccc' }}"></div>
-                                            {{ $trx->wallet->name ?? 'Dihapus' }}
-                                        </div>
-                                    @endif
+                                <div>
+                                    <p class="text-sm font-bold text-slate-800 line-clamp-1">{{ $trx->category->name ?? 'Transfer' }}</p>
+                                    <p class="text-xs text-slate-500">{{ \Carbon\Carbon::parse($trx->date)->format('d M Y') }} • {{ $trx->wallet->name ?? '' }}</p>
                                 </div>
-                            </td>
-
-                            <!-- Kolom 3: Nominal -->
-                            <td class="px-6 py-4 text-right">
-                                @if($trx->type === 'income')
-                                    <p class="text-xl font-heading font-bold text-success">+ Rp {{ number_format($trx->amount, 0, ',', '.') }}</p>
-                                @elseif($trx->type === 'expense')
-                                    <p class="text-xl font-heading font-bold text-danger">- Rp {{ number_format($trx->amount, 0, ',', '.') }}</p>
-                                @else
-                                    <p class="text-xl font-heading font-bold text-info">Rp {{ number_format($trx->amount, 0, ',', '.') }}</p>
-                                @endif
-                                
-                                @if($trx->description)
-                                    <p class="text-xs text-muted mt-1 truncate max-w-[200px] ml-auto" title="{{ $trx->description }}">
-                                        {{ $trx->description }}
-                                    </p>
-                                @endif
-                            </td>
-                        </tr>
+                            </div>
+                            <span class="text-sm font-bold {{ $trx->type == 'income' ? 'text-teal-600' : 'text-rose-600' }}">
+                                {{ $trx->type == 'income' ? '+' : '-' }} Rp {{ number_format($trx->amount, 0, ',', '.') }}
+                            </span>
+                        </div>
                     @empty
-                        <tr>
-                            <td colspan="3" class="px-6 py-16 text-center">
-                                <div class="flex flex-col items-center justify-center">
-                                    <div class="w-20 h-20 bg-background rounded-full border border-border flex items-center justify-center mb-4">
-                                        <i class="ti ti-receipt text-4xl text-muted"></i>
-                                    </div>
-                                    <h3 class="text-lg font-heading font-bold text-heading mb-1">Belum ada aktivitas</h3>
-                                    <p class="text-muted text-sm mb-5">Transaksi yang Anda buat akan muncul di sini.</p>
-                                    <a href="{{ route('transactions.create') }}" class="inline-flex items-center px-5 py-2.5 bg-primary text-surface rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors shadow-sm shadow-primary/30">
-                                        <i class="ti ti-plus mr-2 text-lg"></i> Catat Transaksi Baru
-                                    </a>
-                                </div>
-                            </td>
-                        </tr>
+                        <div class="text-center py-10 flex flex-col items-center">
+                            <i class="ti ti-receipt-off text-4xl text-slate-300 mb-2"></i>
+                            <p class="text-sm text-slate-500">Belum ada transaksi</p>
+                        </div>
                     @endforelse
-                </tbody>
-            </table>
+                </div>
+            </div>
+
         </div>
     </div>
+
+    <!-- Script Inisialisasi ApexCharts -->
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            var options = {
+                chart: {
+                    type: 'line', // Menggunakan base 'line' agar sumbu X sejajar sempurna
+                    height: 320,
+                    fontFamily: "'Plus Jakarta Sans', sans-serif",
+                    toolbar: { show: false },
+                    zoom: { enabled: false },
+                    dropShadow: {
+                        enabled: true,
+                        top: 4,
+                        left: 0,
+                        blur: 3,
+                        color: '#000',
+                        opacity: 0.08
+                    }
+                },
+                stroke: {
+                    width: 0 // Menghilangkan garis penyambung agar tetap tampil sebagai titik-titik murni
+                },
+                series: [
+                    {
+                        name: 'Pemasukan',
+                        data: {!! json_encode($chartIncome) !!}
+                    },
+                    {
+                        name: 'Pengeluaran',
+                        data: {!! json_encode($chartExpense) !!}
+                    }
+                ],
+                colors: ['#0d9488', '#e11d48'], // Teal 600, Rose 600
+                markers: {
+                    size: 7,
+                    strokeWidth: 3,
+                    strokeColors: '#ffffff',
+                    hover: { size: 9 }
+                },
+                xaxis: {
+                    categories: {!! json_encode($chartDates) !!},
+                    tooltip: { enabled: false },
+                    axisBorder: { show: false },
+                    axisTicks: { show: false },
+                    labels: {
+                        style: { colors: '#64748b', fontSize: '11px', fontWeight: 500 }
+                    }
+                },
+                yaxis: {
+                    labels: {
+                        style: { colors: '#64748b', fontSize: '11px', fontWeight: 500 },
+                        formatter: function (value) {
+                            if (value >= 1000000) return "Rp " + (value / 1000000).toFixed(1) + "M";
+                            if (value >= 1000) return "Rp " + (value / 1000).toFixed(0) + "K";
+                            return "Rp " + value;
+                        }
+                    }
+                },
+                grid: {
+                    borderColor: '#e2e8f0',
+                    strokeDashArray: 4,
+                    row: {
+                        colors: ['#f8fafc', 'transparent'], // Latar belakang belang-belang halus (Zebra striping)
+                        opacity: 1
+                    },
+                    xaxis: { lines: { show: true } }, // Menampilkan garis vertikal pendukung
+                    yaxis: { lines: { show: true } }
+                },
+                legend: {
+                    position: 'top',
+                    horizontalAlign: 'right',
+                    markers: { radius: 12 },
+                    itemMargin: { horizontal: 10, vertical: 0 }
+                },
+                tooltip: {
+                    shared: true,
+                    intersect: false,
+                    theme: 'light',
+                    y: {
+                        formatter: function (y) {
+                            if (typeof y !== "undefined") {
+                                return "Rp " + y.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+                            }
+                            return y;
+                        }
+                    }
+                }
+            };
+
+            var chart = new ApexCharts(document.querySelector("#cashflowChart"), options);
+            chart.render();
+        });
+    </script>
 </x-app-layout>

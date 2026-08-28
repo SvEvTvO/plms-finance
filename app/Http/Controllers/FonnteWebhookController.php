@@ -31,13 +31,19 @@ class FonnteWebhookController extends Controller
 
             $message = trim($request->input('message') ?? $request->input('text') ?? '');
 
+            // CATAT LOG DI VERCEL
+            Log::info("Fonnte INBOUND [{$sender}]: {$message}");
+
             if (empty($message) || empty($sender)) {
                 return response()->json(['status' => 'ignored_empty'], 200);
             }
 
-            // 1. Identifikasi User (Abaikan diam-diam jika tidak terdaftar)
+            // 1. Identifikasi User
             $user = $this->findUserByPhone($sender);
+
             if (!$user) {
+                // MODE DEBUG: Beri tahu jika nomor benar-benar tidak ada di Database
+                FonnteService::send("🛠️ [DEBUG] Bot membaca nomor Anda sebagai: {$sender}. Namun nomor ini TIDAK DITEMUKAN di database web.", $sender);
                 return response()->json(['status' => 'ignored_unregistered'], 200);
             }
 
@@ -71,24 +77,21 @@ class FonnteWebhookController extends Controller
                 return response()->json(['status' => 'transfer processed'], 200);
             }
 
-            // 4. Evaluasi Format Transaksi Terstruktur (Wajib ada kata Jenis: dan Nominal:)
+            // 4. Evaluasi Format Transaksi Terstruktur
             if (preg_match('/jenis\s*:/i', $message) && preg_match('/nominal\s*:/i', $message)) {
                 $this->processStructuredTransaction($user, $message, $sender);
                 return response()->json(['status' => 'transaction processed'], 200);
             }
 
-            // ==========================================
-            // 5. NORMAL CHAT -> ABAIKAN DIAM-DIAM!
-            // Jika tidak cocok dengan format di atas, bot tidak akan membalas apa-apa.
-            // ==========================================
+            // MODE DEBUG: Beri tahu jika pesan masuk tapi tidak terbaca sebagai command
+            FonnteService::send("🛠️ [DEBUG] Pesan diterima bot, tapi tidak lolos filter command. Teks yang dibaca bot: '{$cleanCommand}'", $sender);
             return response()->json(['status' => 'ignored_normal_chat'], 200);
 
         } catch (Throwable $e) {
             Log::error("Fonnte Crash: " . $e->getMessage() . " at Line " . $e->getLine());
             if (!empty($sender)) {
-                FonnteService::send("⚠️ *Gagal Memproses:* " . $e->getMessage(), $sender);
+                FonnteService::send("🛠️ [DEBUG SERVER ERROR]: " . $e->getMessage(), $sender);
             }
-            // SANGAT PENTING: SELALU RETURN 200 AGAR FONNTE TIDAK MENGIRIM ULANG / SPAM
             return response()->json(['status' => 'error_handled_gracefully'], 200);
         }
     }
@@ -188,7 +191,7 @@ class FonnteWebhookController extends Controller
 
         $type = str_contains(strtolower($dataMap['jenis']), 'masuk') ? 'income' : 'expense';
         $amount = $this->parseAmount($dataMap['nominal']);
-        
+
         $wallet = $this->findWalletOrDefault($user->id, $dataMap['dompet'] ?? null);
         $category = $this->findOrCreateCategory($user->id, $type, $dataMap['kategori'] ?? null);
 
@@ -246,7 +249,7 @@ class FonnteWebhookController extends Controller
     {
         $icon = $type === 'income' ? '🟢' : '🔴';
         $typeLabel = $type === 'income' ? 'Pemasukan' : 'Pengeluaran';
-        
+
         $msg = "✅ *Transaksi Dicatat!*\n\n📌 *Jenis:* {$icon} {$typeLabel}\n📂 *Kategori:* {$category->name}\n💰 *Nominal:* Rp " . number_format($amount, 0, ',', '.') . "\n💳 *Dompet:* {$wallet->name} (Sisa: Rp " . number_format($wallet->balance, 0, ',', '.') . ")\n📝 *Catatan:* {$desc}";
         FonnteService::send($msg, $sender);
     }
@@ -256,7 +259,7 @@ class FonnteWebhookController extends Controller
         $val = strtolower(trim($val));
         $multiplier = str_ends_with($val, 'k') ? 1000 : 1;
         $num = (float) preg_replace('/[^0-9]/', '', $val) * $multiplier;
-        
+
         if ($num <= 0) throw new Exception("Nominal tidak valid.");
         return $num;
     }
