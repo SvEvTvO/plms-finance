@@ -6,18 +6,18 @@
             "use": "vercel-php@0.7.2"
         },
         {
-            "src": "public/**",
+            "src": "public/**/*",
             "use": "@vercel/static"
         }
     ],
     "routes": [
         {
             "src": "/build/(.*)",
-            "dest": "/build/$1"
+            "dest": "/public/build/$1"
         },
         {
             "src": "/(favicon.ico|robots.txt|.*\\.(?:css|js|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot))",
-            "dest": "/$1"
+            "dest": "/public/$1"
         },
         {
             "src": "/(.*)",
