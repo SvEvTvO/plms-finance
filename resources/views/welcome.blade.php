@@ -11,6 +11,11 @@
         <link href="https://fonts.bunny.net/css?family=plus-jakarta-sans:400,500,600,700,800&display=swap" rel="stylesheet" />
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 
+
+        <!-- Favicon PLMS Finance -->
+        <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
+
+
         <!-- Styles -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
         <style>
