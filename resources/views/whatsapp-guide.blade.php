@@ -220,12 +220,12 @@ Keterangan : Gaji Bulan Ini</pre>
                             <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center shrink-0">
                                 <i class="ti ti-robot text-slate-500"></i>
                             </div>
-                            <span class="font-bold text-slate-800 text-sm truncate">083839717167</span>
+                            <span class="font-bold text-slate-800 text-sm truncate">PLMS-Finance Bot</span>
                         </div>
 
                         <!-- Body Chat -->
                         <div class="flex-1 p-4 overflow-y-auto space-y-4 bg-[#efeae2]" style="background-image: radial-gradient(#d4cece 1px, transparent 1px); background-size: 10px 10px;">
-                            
+
                             <!-- Chat User (Format) -->
                             <div class="self-end ml-auto bg-[#d9fdd3] text-slate-800 p-2.5 rounded-xl rounded-tr-none shadow-sm max-w-[85%] text-xs font-mono border border-[#c4ebb5]">
                                 Jenis : Pengeluaran<br>
@@ -246,7 +246,7 @@ Keterangan : Gaji Bulan Ini</pre>
                             </div>
 
                         </div>
-                        
+
                         <!-- Footer Chat (Input) -->
                         <div class="bg-white p-2 border-t flex gap-2 items-center shrink-0">
                             <div class="flex-1 bg-slate-100 rounded-full h-9 px-4 flex items-center text-slate-400 text-xs">Ketik pesan...</div>
@@ -271,20 +271,20 @@ Keterangan : Gaji Bulan Ini</pre>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                
+
                 <!-- Kiri: Mockup Layar HP 2 -->
                 <div class="lg:col-span-5 flex justify-center lg:justify-start">
                     <div class="w-full max-w-[320px] bg-slate-100 border-[8px] border-slate-800 rounded-[2.5rem] h-[520px] relative shadow-xl overflow-hidden flex flex-col">
                         <div class="absolute top-0 inset-x-0 h-5 bg-slate-800 w-32 mx-auto rounded-b-xl z-20"></div>
-                        
+
                         <div class="bg-white border-b px-4 py-3 pt-6 flex items-center gap-3 z-10 shrink-0">
                             <i class="ti ti-arrow-left text-slate-400"></i>
                             <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center shrink-0">
                                 <i class="ti ti-robot text-slate-500"></i>
                             </div>
-                            <span class="font-bold text-slate-800 text-sm truncate">083839717167</span>
+                            <span class="font-bold text-slate-800 text-sm truncate">PLMS-Finance Bot</span>
                         </div>
-                        
+
                         <div class="flex-1 p-4 overflow-y-auto space-y-4 bg-[#efeae2]" style="background-image: radial-gradient(#d4cece 1px, transparent 1px); background-size: 10px 10px;">
                             <!-- Chat User -->
                             <div class="self-end ml-auto bg-[#d9fdd3] text-slate-800 p-2.5 rounded-xl rounded-tr-none shadow-sm max-w-[85%] text-[13px] font-mono border border-[#c4ebb5] font-bold">
@@ -301,7 +301,7 @@ Keterangan : Gaji Bulan Ini</pre>
                                 💰 <strong>Total Aset:</strong> Rp 3.445.000
                             </div>
                         </div>
-                        
+
                         <div class="bg-white p-2 border-t flex gap-2 items-center shrink-0">
                             <div class="flex-1 bg-slate-100 rounded-full h-9 px-4 flex items-center text-slate-400 text-xs">Ketik pesan...</div>
                             <div class="w-9 h-9 rounded-full bg-teal-600 flex items-center justify-center text-white shrink-0 shadow-sm"><i class="ti ti-send text-sm"></i></div>
@@ -311,7 +311,7 @@ Keterangan : Gaji Bulan Ini</pre>
 
                 <!-- Kanan: List Command -->
                 <div class="lg:col-span-7 space-y-4">
-                    
+
                     <!-- Command 1: SALDO -->
                     <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
                         <div class="mb-4">
@@ -382,7 +382,7 @@ Keterangan : Gaji Bulan Ini</pre>
                 const originalHTML = buttonElement.innerHTML;
                 // Ubah state jadi copied
                 buttonElement.innerHTML = '<i class="ti ti-check text-emerald-600 text-base"></i> <span class="text-emerald-600">Copied</span>';
-                
+
                 // Reset setelah 2 detik
                 setTimeout(() => {
                     buttonElement.innerHTML = originalHTML;
