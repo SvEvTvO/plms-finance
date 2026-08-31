@@ -17,6 +17,7 @@
         "@laravel/multiplex": "^0.4.1"
     },
     "dependencies": {
+        "aos": "^2.3.4",
         "tailwindcss": "^4.3.3"
     }
 }

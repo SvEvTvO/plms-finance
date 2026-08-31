@@ -15,6 +15,14 @@ Route::get('/', function () {
     return view('welcome');
 });
 
+Route::get('/chat-gpt', function () {return view('welcome-chat-gpt');});
+Route::get('/chat-z', function () {return view('welcome-chat-z');});
+Route::get('/claude', function () {return view('welcome-claude');});
+Route::get('/deepseek', function () {return view('welcome-deepseek');});
+Route::get('/default', function () {return view('welcome-default');});
+Route::get('/gemini', function () {return view('welcome-gemini');});
+
+
 Route::get('/dashboard', [DashboardController::class, 'index'])
     ->middleware(['auth', 'verified'])
     ->name('dashboard');

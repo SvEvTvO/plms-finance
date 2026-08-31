@@ -9,6 +9,8 @@ use App\Services\FinanceService;
 use App\Services\FonnteService;
 use Illuminate\Http\Request;
 use Exception;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class TransactionController extends Controller
 {
@@ -21,25 +23,120 @@ class TransactionController extends Controller
 
     public function index()
     {
+        $startTime = microtime(true);
+        $startMemory = memory_get_usage();
+
+        // Log start query
+        Log::info('Transaction Index - Start', [
+            'user_id' => auth()->id(),
+            'timestamp' => now()->toDateTimeString()
+        ]);
+
+        // Enable query log untuk debugging
+        DB::enableQueryLog();
+
+        $queryStart = microtime(true);
         $transactions = Transaction::with(['wallet', 'category', 'sourceWallet', 'destinationWallet'])
             ->where('user_id', auth()->id())
             ->orderByDesc('date')
             ->orderByDesc('id')
             ->paginate(15);
+        $queryTime = microtime(true) - $queryStart;
+
+        // Get query log
+        $queries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        // Log query performance
+        Log::info('Transaction Index - Query Performance', [
+            'user_id' => auth()->id(),
+            'total_queries' => count($queries),
+            'query_time' => round($queryTime * 1000, 2) . 'ms',
+            'records_found' => $transactions->total(),
+            'queries' => array_map(function($query) {
+                return [
+                    'sql' => $query['query'],
+                    'bindings' => $query['bindings'],
+                    'time' => round($query['time'] / 1000, 2) . 'ms'
+                ];
+            }, $queries)
+        ]);
+
+        // Log memory usage
+        $endMemory = memory_get_usage();
+        $endTime = microtime(true);
+        
+        Log::info('Transaction Index - Performance Summary', [
+            'user_id' => auth()->id(),
+            'total_time' => round(($endTime - $startTime) * 1000, 2) . 'ms',
+            'memory_used' => round(($endMemory - $startMemory) / 1024, 2) . 'KB',
+            'peak_memory' => round(memory_get_peak_usage() / 1024, 2) . 'KB',
+            'paginate' => [
+                'current_page' => $transactions->currentPage(),
+                'per_page' => $transactions->perPage(),
+                'total' => $transactions->total()
+            ]
+        ]);
 
         return view('transactions.index', compact('transactions'));
     }
 
     public function create()
     {
+        $startTime = microtime(true);
+
+        Log::info('Transaction Create - Start', [
+            'user_id' => auth()->id(),
+            'timestamp' => now()->toDateTimeString()
+        ]);
+
+        DB::enableQueryLog();
+
+        // Query wallets
+        $walletsQueryStart = microtime(true);
         $wallets = Wallet::where('user_id', auth()->id())->where('is_active', true)->get();
+        $walletsQueryTime = microtime(true) - $walletsQueryStart;
+
+        // Query categories
+        $categoriesQueryStart = microtime(true);
         $categories = Category::where('user_id', auth()->id())->orderBy('name')->get();
+        $categoriesQueryTime = microtime(true) - $categoriesQueryStart;
+
+        $queries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $endTime = microtime(true);
+
+        Log::info('Transaction Create - Performance', [
+            'user_id' => auth()->id(),
+            'total_time' => round(($endTime - $startTime) * 1000, 2) . 'ms',
+            'wallets_query_time' => round($walletsQueryTime * 1000, 2) . 'ms',
+            'wallets_count' => $wallets->count(),
+            'categories_query_time' => round($categoriesQueryTime * 1000, 2) . 'ms',
+            'categories_count' => $categories->count(),
+            'total_queries' => count($queries),
+            'queries' => array_map(function($query) {
+                return [
+                    'sql' => $query['query'],
+                    'time' => round($query['time'] / 1000, 2) . 'ms'
+                ];
+            }, $queries)
+        ]);
 
         return view('transactions.create', compact('wallets', 'categories'));
     }
 
     public function store(Request $request)
     {
+        $startTime = microtime(true);
+        
+        Log::info('Transaction Store - Start', [
+            'user_id' => auth()->id(),
+            'type' => $request->type,
+            'amount' => $request->amount,
+            'timestamp' => now()->toDateTimeString()
+        ]);
+
         $validated = $request->validate([
             'type' => 'required|in:income,expense,transfer',
             'amount' => 'required|numeric|min:1',
@@ -54,13 +151,19 @@ class TransactionController extends Controller
         ]);
 
         try {
+            DB::enableQueryLog();
+
             // Simpan transaksi melalui FinanceService
+            $transactionStart = microtime(true);
             $transaction = $this->financeService->createTransaction($validated);
+            $transactionTime = microtime(true) - $transactionStart;
 
             // Susun pesan notifikasi WhatsApp
             $nominal = 'Rp ' . number_format($validated['amount'], 0, ',', '.');
             $desc = $validated['description'] ?? '-';
 
+            // Query for notification data
+            $notifStart = microtime(true);
             if ($validated['type'] === 'transfer') {
                 $source = Wallet::find($validated['source_wallet_id'])->name ?? 'Dompet Asal';
                 $dest = Wallet::find($validated['destination_wallet_id'])->name ?? 'Dompet Tujuan';
@@ -84,12 +187,49 @@ class TransactionController extends Controller
                        . "📝 *Catatan:* {$desc}\n\n"
                        . "_PLMS Finance Management_";
             }
+            $notifTime = microtime(true) - $notifStart;
 
             // Kirim notifikasi via Fonnte
+            $fonnteStart = microtime(true);
             FonnteService::send($pesan);
+            $fonnteTime = microtime(true) - $fonnteStart;
+
+            $queries = DB::getQueryLog();
+            DB::disableQueryLog();
+
+            $endTime = microtime(true);
+
+            // Log detailed performance
+            Log::info('Transaction Store - Performance', [
+                'user_id' => auth()->id(),
+                'transaction_id' => $transaction->id ?? null,
+                'type' => $validated['type'],
+                'total_time' => round(($endTime - $startTime) * 1000, 2) . 'ms',
+                'finance_service_time' => round($transactionTime * 1000, 2) . 'ms',
+                'notification_data_time' => round($notifTime * 1000, 2) . 'ms',
+                'fonnte_service_time' => round($fonnteTime * 1000, 2) . 'ms',
+                'total_queries' => count($queries),
+                'queries' => array_map(function($query) {
+                    return [
+                        'sql' => $query['query'],
+                        'bindings' => $query['bindings'],
+                        'time' => round($query['time'] / 1000, 2) . 'ms'
+                    ];
+                }, $queries)
+            ]);
 
             return redirect()->route('transactions.index')->with('success', 'Transaksi berhasil dicatat.');
         } catch (Exception $e) {
+            $endTime = microtime(true);
+            
+            Log::error('Transaction Store - Error', [
+                'user_id' => auth()->id(),
+                'type' => $request->type,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'time_elapsed' => round(($endTime - $startTime) * 1000, 2) . 'ms'
+            ]);
+
             return back()->withInput()->with('error', $e->getMessage());
         }
     }
@@ -98,8 +238,47 @@ class TransactionController extends Controller
     {
         if ($transaction->user_id !== auth()->id()) abort(403);
 
+        $startTime = microtime(true);
+
+        Log::info('Transaction Edit - Start', [
+            'user_id' => auth()->id(),
+            'transaction_id' => $transaction->id,
+            'timestamp' => now()->toDateTimeString()
+        ]);
+
+        DB::enableQueryLog();
+
+        // Query wallets
+        $walletsQueryStart = microtime(true);
         $allWallets = Wallet::where('user_id', auth()->id())->get();
+        $walletsQueryTime = microtime(true) - $walletsQueryStart;
+
+        // Query categories
+        $categoriesQueryStart = microtime(true);
         $categories = Category::where('user_id', auth()->id())->orderBy('name')->get();
+        $categoriesQueryTime = microtime(true) - $categoriesQueryStart;
+
+        $queries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $endTime = microtime(true);
+
+        Log::info('Transaction Edit - Performance', [
+            'user_id' => auth()->id(),
+            'transaction_id' => $transaction->id,
+            'total_time' => round(($endTime - $startTime) * 1000, 2) . 'ms',
+            'wallets_query_time' => round($walletsQueryTime * 1000, 2) . 'ms',
+            'wallets_count' => $allWallets->count(),
+            'categories_query_time' => round($categoriesQueryTime * 1000, 2) . 'ms',
+            'categories_count' => $categories->count(),
+            'total_queries' => count($queries),
+            'queries' => array_map(function($query) {
+                return [
+                    'sql' => $query['query'],
+                    'time' => round($query['time'] / 1000, 2) . 'ms'
+                ];
+            }, $queries)
+        ]);
 
         return view('transactions.edit', compact('transaction', 'allWallets', 'categories'));
     }
@@ -107,6 +286,16 @@ class TransactionController extends Controller
     public function update(Request $request, Transaction $transaction)
     {
         if ($transaction->user_id !== auth()->id()) abort(403);
+
+        $startTime = microtime(true);
+
+        Log::info('Transaction Update - Start', [
+            'user_id' => auth()->id(),
+            'transaction_id' => $transaction->id,
+            'type' => $request->type,
+            'amount' => $request->amount,
+            'timestamp' => now()->toDateTimeString()
+        ]);
 
         $validated = $request->validate([
             'type' => 'required|in:income,expense,transfer',
@@ -120,9 +309,44 @@ class TransactionController extends Controller
         ]);
 
         try {
+            DB::enableQueryLog();
+
+            $updateStart = microtime(true);
             $this->financeService->updateTransaction($transaction, $validated);
+            $updateTime = microtime(true) - $updateStart;
+
+            $queries = DB::getQueryLog();
+            DB::disableQueryLog();
+
+            $endTime = microtime(true);
+
+            Log::info('Transaction Update - Performance', [
+                'user_id' => auth()->id(),
+                'transaction_id' => $transaction->id,
+                'total_time' => round(($endTime - $startTime) * 1000, 2) . 'ms',
+                'finance_service_time' => round($updateTime * 1000, 2) . 'ms',
+                'total_queries' => count($queries),
+                'queries' => array_map(function($query) {
+                    return [
+                        'sql' => $query['query'],
+                        'bindings' => $query['bindings'],
+                        'time' => round($query['time'] / 1000, 2) . 'ms'
+                    ];
+                }, $queries)
+            ]);
+
             return redirect()->route('transactions.index')->with('success', 'Transaksi berhasil diperbarui.');
         } catch (Exception $e) {
+            $endTime = microtime(true);
+
+            Log::error('Transaction Update - Error', [
+                'user_id' => auth()->id(),
+                'transaction_id' => $transaction->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'time_elapsed' => round(($endTime - $startTime) * 1000, 2) . 'ms'
+            ]);
+
             return back()->withInput()->with('error', $e->getMessage());
         }
     }
@@ -131,10 +355,55 @@ class TransactionController extends Controller
     {
         if ($transaction->user_id !== auth()->id()) abort(403);
 
+        $startTime = microtime(true);
+
+        Log::info('Transaction Destroy - Start', [
+            'user_id' => auth()->id(),
+            'transaction_id' => $transaction->id,
+            'type' => $transaction->type,
+            'amount' => $transaction->amount,
+            'timestamp' => now()->toDateTimeString()
+        ]);
+
         try {
+            DB::enableQueryLog();
+
+            $deleteStart = microtime(true);
             $this->financeService->deleteTransaction($transaction);
+            $deleteTime = microtime(true) - $deleteStart;
+
+            $queries = DB::getQueryLog();
+            DB::disableQueryLog();
+
+            $endTime = microtime(true);
+
+            Log::info('Transaction Destroy - Performance', [
+                'user_id' => auth()->id(),
+                'transaction_id' => $transaction->id,
+                'total_time' => round(($endTime - $startTime) * 1000, 2) . 'ms',
+                'finance_service_time' => round($deleteTime * 1000, 2) . 'ms',
+                'total_queries' => count($queries),
+                'queries' => array_map(function($query) {
+                    return [
+                        'sql' => $query['query'],
+                        'bindings' => $query['bindings'],
+                        'time' => round($query['time'] / 1000, 2) . 'ms'
+                    ];
+                }, $queries)
+            ]);
+
             return redirect()->route('transactions.index')->with('success', 'Transaksi berhasil dihapus dan saldo telah disesuaikan kembali.');
         } catch (Exception $e) {
+            $endTime = microtime(true);
+
+            Log::error('Transaction Destroy - Error', [
+                'user_id' => auth()->id(),
+                'transaction_id' => $transaction->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'time_elapsed' => round(($endTime - $startTime) * 1000, 2) . 'ms'
+            ]);
+
             return back()->with('error', $e->getMessage());
         }
     }
