@@ -8,11 +8,5 @@ Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
 
-
-Route::prefix('webhook')->group(function () {
-    Route::get('/whatsapp', [WhatsAppWebhookController::class, 'verify']);
-    Route::post('/whatsapp', [WhatsAppWebhookController::class, 'handle']);
-});
-
-// Rute Webhook Fonnte (Mendukung GET dan POST)
+// Rute Webhook Fonnte
 Route::match(['get', 'post'], '/fonnte/webhook', [FonnteWebhookController::class, 'handle']);

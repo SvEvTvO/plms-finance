@@ -10,6 +10,7 @@ use App\Services\FonnteService;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -31,7 +32,6 @@ class FonnteWebhookController extends Controller
 
             $message = trim($request->input('message') ?? $request->input('text') ?? '');
 
-            // CATAT LOG DI VERCEL
             Log::info("Fonnte INBOUND [{$sender}]: {$message}");
 
             if (empty($message) || empty($sender)) {
@@ -42,8 +42,7 @@ class FonnteWebhookController extends Controller
             $user = $this->findUserByPhone($sender);
 
             if (!$user) {
-                // MODE DEBUG: Beri tahu jika nomor benar-benar tidak ada di Database
-                FonnteService::send("🛠️ [DEBUG] Bot membaca nomor Anda sebagai: {$sender}. Namun nomor ini TIDAK DITEMUKAN di database web.", $sender);
+                FonnteService::send("⚠️ Nomor WhatsApp Anda ({$sender}) belum terdaftar di akun PLMS Finance.", $sender);
                 return response()->json(['status' => 'ignored_unregistered'], 200);
             }
 
@@ -52,22 +51,12 @@ class FonnteWebhookController extends Controller
 
             // 2. Evaluasi Command Cepat
             if (in_array($cleanCommand, $validCommands)) {
-                switch ($cleanCommand) {
-                    case 'BANTUAN':
-                    case 'MENU':
-                    case 'PANDUAN':
-                        $this->replyHelp($sender);
-                        break;
-                    case 'SALDO':
-                        $this->replySaldo($user, $sender);
-                        break;
-                    case 'REKAP':
-                        $this->replyRekap($user, $sender);
-                        break;
-                    case 'RIWAYAT':
-                        $this->replyRiwayat($user, $sender);
-                        break;
-                }
+                match ($cleanCommand) {
+                    'BANTUAN', 'MENU', 'PANDUAN' => $this->replyHelp($sender),
+                    'SALDO'   => $this->replySaldo($user, $sender),
+                    'REKAP'   => $this->replyRekap($user, $sender),
+                    'RIWAYAT' => $this->replyRiwayat($user, $sender),
+                };
                 return response()->json(['status' => 'command processed'], 200);
             }
 
@@ -83,14 +72,12 @@ class FonnteWebhookController extends Controller
                 return response()->json(['status' => 'transaction processed'], 200);
             }
 
-            // MODE DEBUG: Beri tahu jika pesan masuk tapi tidak terbaca sebagai command
-            FonnteService::send("🛠️ [DEBUG] Pesan diterima bot, tapi tidak lolos filter command. Teks yang dibaca bot: '{$cleanCommand}'", $sender);
             return response()->json(['status' => 'ignored_normal_chat'], 200);
 
         } catch (Throwable $e) {
-            Log::error("Fonnte Crash: " . $e->getMessage() . " at Line " . $e->getLine());
+            Log::error("Fonnte Error: " . $e->getMessage() . " at line " . $e->getLine());
             if (!empty($sender)) {
-                FonnteService::send("🛠️ [DEBUG SERVER ERROR]: " . $e->getMessage(), $sender);
+                FonnteService::send("⚠️ Gagal memproses: " . $e->getMessage(), $sender);
             }
             return response()->json(['status' => 'error_handled_gracefully'], 200);
         }
@@ -105,18 +92,18 @@ class FonnteWebhookController extends Controller
     private function replyHelp(string $sender): void
     {
         $text = "🤖 *PANDUAN BOT PLMS FINANCE*\n\n"
-              . "📋 *Command Cepat:*\n"
+              . "📋 *Perintah Cepat:*\n"
               . "• *SALDO* : Cek saldo dompet\n"
-              . "• *REKAP* : Rekap bulan ini\n"
+              . "• *REKAP* : Rekap arus kas bulan ini\n"
               . "• *RIWAYAT* : 5 transaksi terakhir\n"
-              . "• *BANTUAN* : Menampilkan menu ini\n\n"
-              . "📝 *Format Catat Transaksi:*\n"
+              . "• *BANTUAN* : Panduan format pesan\n\n"
+              . "📝 *Catat Transaksi:*\n"
               . "Jenis : Pengeluaran\n"
               . "Kategori : Makanan\n"
               . "Nominal : 25000\n"
               . "Dompet : Cash\n"
               . "Keterangan : Nasi Padang\n\n"
-              . "🔄 *Format Transfer:*\n"
+              . "🔄 *Transfer Saldo:*\n"
               . "Transfer 50000 BCA ke GoPay";
 
         FonnteService::send($text, $sender);
@@ -132,10 +119,7 @@ class FonnteWebhookController extends Controller
         }
 
         $total = $wallets->sum('balance');
-        $lines = [];
-        foreach ($wallets as $w) {
-            $lines[] = "• *{$w->name}:* Rp " . number_format($w->balance, 0, ',', '.');
-        }
+        $lines = $wallets->map(fn($w) => "• *{$w->name}:* Rp " . number_format($w->balance, 0, ',', '.'))->toArray();
 
         $msg = "💳 *INFORMASI SALDO*\n\n" . implode("\n", $lines) . "\n────────────────\n💰 *Total Aset:* Rp " . number_format($total, 0, ',', '.');
         FonnteService::send($msg, $sender);
@@ -144,23 +128,43 @@ class FonnteWebhookController extends Controller
     private function replyRekap(User $user, string $sender): void
     {
         $start = Carbon::now()->startOfMonth()->toDateString();
-        $end = Carbon::now()->endOfMonth()->toDateString();
+        $end   = Carbon::now()->endOfMonth()->toDateString();
 
-        $income = Transaction::where('user_id', $user->id)->where('type', 'income')->whereBetween('date', [$start, $end])->sum('amount');
-        $expense = Transaction::where('user_id', $user->id)->where('type', 'expense')->whereBetween('date', [$start, $end])->sum('amount');
-        $net = $income - $expense;
+        // 1 Query agregasi untuk income dan expense
+        $recap = Transaction::where('user_id', $user->id)
+            ->whereBetween('date', [$start, $end])
+            ->whereIn('type', ['income', 'expense'])
+            ->selectRaw('type, sum(amount) as total')
+            ->groupBy('type')
+            ->pluck('total', 'type');
 
-        $msg = "📊 *REKAP BULAN INI*\n\n🟢 *Masuk:* Rp " . number_format($income, 0, ',', '.') . "\n🔴 *Keluar:* Rp " . number_format($expense, 0, ',', '.') . "\n────────────────\n📈 *Sisa:* Rp " . number_format($net, 0, ',', '.');
+        $income  = (float) ($recap['income'] ?? 0);
+        $expense = (float) ($recap['expense'] ?? 0);
+        $net     = $income - $expense;
+
+        $msg = "📊 *REKAP BULAN INI*\n\n"
+             . "🟢 *Masuk:* Rp " . number_format($income, 0, ',', '.') . "\n"
+             . "🔴 *Keluar:* Rp " . number_format($expense, 0, ',', '.') . "\n"
+             . "────────────────\n"
+             . "📈 *Sisa:* Rp " . number_format($net, 0, ',', '.');
+
         FonnteService::send($msg, $sender);
     }
 
     private function replyRiwayat(User $user, string $sender): void
     {
-        $transactions = Transaction::with(['wallet', 'sourceWallet', 'destinationWallet'])->where('user_id', $user->id)->orderByDesc('date')->orderByDesc('id')->take(5)->get();
+        $transactions = Transaction::with(['wallet', 'sourceWallet', 'destinationWallet'])
+            ->where('user_id', $user->id)
+            ->orderByDesc('date')
+            ->orderByDesc('id')
+            ->take(5)
+            ->get();
+
         if ($transactions->isEmpty()) {
             FonnteService::send("Belum ada riwayat transaksi.", $sender);
             return;
         }
+
         $lines = [];
         foreach ($transactions as $idx => $t) {
             $amt = 'Rp ' . number_format($t->amount, 0, ',', '.');
@@ -171,6 +175,7 @@ class FonnteWebhookController extends Controller
                 $lines[] = ($idx + 1) . ". [{$icon}] {$t->description} - {$amt}";
             }
         }
+
         FonnteService::send("⏱ *5 TRANSAKSI TERAKHIR*\n\n" . implode("\n\n", $lines), $sender);
     }
 
@@ -186,7 +191,7 @@ class FonnteWebhookController extends Controller
         }
 
         if (!isset($dataMap['jenis']) || !isset($dataMap['nominal'])) {
-            throw new Exception("Format salah. Pastikan baris *Jenis* dan *Nominal* sudah benar.");
+            throw new Exception("Format salah. Pastikan baris *Jenis* dan *Nominal* terisi.");
         }
 
         $type = str_contains(strtolower($dataMap['jenis']), 'masuk') ? 'income' : 'expense';
@@ -194,24 +199,28 @@ class FonnteWebhookController extends Controller
 
         $wallet = $this->findWalletOrDefault($user->id, $dataMap['dompet'] ?? null);
         $category = $this->findOrCreateCategory($user->id, $type, $dataMap['kategori'] ?? null);
+        $description = $dataMap['keterangan'] ?? '-';
 
-        Transaction::create([
-            'user_id' => $user->id,
-            'type' => $type,
-            'amount' => $amount,
-            'date' => now()->toDateString(),
-            'wallet_id' => $wallet->id,
-            'category_id' => $category->id,
-            'description' => $dataMap['keterangan'] ?? '-',
-        ]);
+        DB::transaction(function () use ($user, $type, $amount, $wallet, $category, $description) {
+            Transaction::create([
+                'user_id'     => $user->id,
+                'type'        => $type,
+                'amount'      => $amount,
+                'date'        => now()->toDateString(),
+                'wallet_id'   => $wallet->id,
+                'category_id' => $category->id,
+                'description' => $description,
+            ]);
 
-        if ($type === 'income') {
-            $wallet->increment('balance', $amount);
-        } else {
-            $wallet->decrement('balance', $amount);
-        }
+            if ($type === 'income') {
+                $wallet->increment('balance', $amount);
+            } else {
+                $wallet->decrement('balance', $amount);
+            }
+        });
 
-        $this->sendSuccess($type, $amount, $wallet, $category, $dataMap['keterangan'] ?? '-', $sender);
+        $wallet->refresh();
+        $this->sendSuccess($type, $amount, $wallet, $category, $description, $sender);
     }
 
     private function processTransfer(User $user, string $message, string $sender): void
@@ -222,26 +231,35 @@ class FonnteWebhookController extends Controller
 
         $amount = $this->parseAmount($matches[1]);
         $sourceWallet = $this->findWalletOrDefault($user->id, trim($matches[2]));
-        $destWallet = $this->findWalletOrDefault($user->id, trim($matches[3]));
+        $destWallet   = $this->findWalletOrDefault($user->id, trim($matches[3]));
 
         if ($sourceWallet->id === $destWallet->id) {
-            throw new Exception("Dompet asal dan tujuan tidak boleh sama.");
+            throw new Exception("Dompet asal dan dompet tujuan tidak boleh sama.");
         }
 
-        $sourceWallet->decrement('balance', $amount);
-        $destWallet->increment('balance', $amount);
+        DB::transaction(function () use ($user, $amount, $sourceWallet, $destWallet) {
+            $sourceWallet->decrement('balance', $amount);
+            $destWallet->increment('balance', $amount);
 
-        Transaction::create([
-            'user_id' => $user->id,
-            'type' => 'transfer',
-            'amount' => $amount,
-            'date' => now()->toDateString(),
-            'description' => "Transfer antar dompet",
-            'source_wallet_id' => $sourceWallet->id,
-            'destination_wallet_id' => $destWallet->id,
-        ]);
+            Transaction::create([
+                'user_id'               => $user->id,
+                'type'                  => 'transfer',
+                'amount'                => $amount,
+                'date'                  => now()->toDateString(),
+                'description'           => "Transfer antar dompet",
+                'source_wallet_id'      => $sourceWallet->id,
+                'destination_wallet_id' => $destWallet->id,
+            ]);
+        });
 
-        $msg = "🔄 *Transfer Berhasil!*\n\n💰 *Nominal:* Rp " . number_format($amount, 0, ',', '.') . "\n📤 *Dari:* {$sourceWallet->name} (Sisa: Rp " . number_format($sourceWallet->balance, 0, ',', '.') . ")\n📥 *Ke:* {$destWallet->name} (Total: Rp " . number_format($destWallet->balance, 0, ',', '.') . ")";
+        $sourceWallet->refresh();
+        $destWallet->refresh();
+
+        $msg = "🔄 *Transfer Berhasil!*\n\n"
+             . "💰 *Nominal:* Rp " . number_format($amount, 0, ',', '.') . "\n"
+             . "📤 *Dari:* {$sourceWallet->name} (Sisa: Rp " . number_format($sourceWallet->balance, 0, ',', '.') . ")\n"
+             . "📥 *Ke:* {$destWallet->name} (Total: Rp " . number_format($destWallet->balance, 0, ',', '.') . ")";
+
         FonnteService::send($msg, $sender);
     }
 
@@ -250,7 +268,13 @@ class FonnteWebhookController extends Controller
         $icon = $type === 'income' ? '🟢' : '🔴';
         $typeLabel = $type === 'income' ? 'Pemasukan' : 'Pengeluaran';
 
-        $msg = "✅ *Transaksi Dicatat!*\n\n📌 *Jenis:* {$icon} {$typeLabel}\n📂 *Kategori:* {$category->name}\n💰 *Nominal:* Rp " . number_format($amount, 0, ',', '.') . "\n💳 *Dompet:* {$wallet->name} (Sisa: Rp " . number_format($wallet->balance, 0, ',', '.') . ")\n📝 *Catatan:* {$desc}";
+        $msg = "✅ *Transaksi Dicatat!*\n\n"
+             . "📌 *Jenis:* {$icon} {$typeLabel}\n"
+             . "📂 *Kategori:* {$category->name}\n"
+             . "💰 *Nominal:* Rp " . number_format($amount, 0, ',', '.') . "\n"
+             . "💳 *Dompet:* {$wallet->name} (Sisa: Rp " . number_format($wallet->balance, 0, ',', '.') . ")\n"
+             . "📝 *Catatan:* {$desc}";
+
         FonnteService::send($msg, $sender);
     }
 
@@ -260,18 +284,34 @@ class FonnteWebhookController extends Controller
         $multiplier = str_ends_with($val, 'k') ? 1000 : 1;
         $num = (float) preg_replace('/[^0-9]/', '', $val) * $multiplier;
 
-        if ($num <= 0) throw new Exception("Nominal tidak valid.");
+        if ($num <= 0) {
+            throw new Exception("Nominal transaksi tidak valid.");
+        }
+
         return $num;
     }
 
     private function findWalletOrDefault(int $userId, ?string $query): Wallet
     {
         if (!empty($query)) {
-            $wallet = Wallet::where('user_id', $userId)->where('name', 'ILIKE', "%{$query}%")->first();
-            if ($wallet) return $wallet;
+            $cleaned = strtolower(trim($query));
+            $wallet = Wallet::where('user_id', $userId)
+                ->whereRaw('LOWER(name) LIKE ?', ["%{$cleaned}%"])
+                ->first();
+
+            if ($wallet) {
+                return $wallet;
+            }
         }
-        $wallet = Wallet::where('user_id', $userId)->where('is_default', true)->first() ?? Wallet::where('user_id', $userId)->first();
-        if (!$wallet) throw new Exception("Dompet tidak ditemukan.");
+
+        $wallet = Wallet::where('user_id', $userId)
+            ->orderByDesc('is_default')
+            ->first();
+
+        if (!$wallet) {
+            throw new Exception("Dompet tidak ditemukan.");
+        }
+
         return $wallet;
     }
 

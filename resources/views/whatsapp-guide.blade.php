@@ -83,7 +83,7 @@
                 <!-- Header Hijau -->
                 <div class="bg-teal-600 p-8 text-center">
                     <h3 class="text-white font-extrabold text-xl flex items-center justify-center gap-2">
-                        Yuk, Mulai Chat Bot-nya! 🚀
+                        Yuk, Mulai Chat Bot-nya!
                     </h3>
                     <p class="text-teal-100 text-sm mt-1">Scan QR atau klik tombol di bawah untuk terhubung.</p>
                 </div>

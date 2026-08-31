@@ -9,16 +9,14 @@ class CategoryController extends Controller
 {
     public function index()
     {
-        // Memisahkan kategori income dan expense agar mudah ditampilkan di View
-        $incomeCategories = Category::where('user_id', auth()->id())
-            ->where('type', 'income')
+        // Ambil semua kategori dalam 1 query saja
+        $categories = Category::where('user_id', auth()->id())
             ->orderBy('name')
             ->get();
 
-        $expenseCategories = Category::where('user_id', auth()->id())
-            ->where('type', 'expense')
-            ->orderBy('name')
-            ->get();
+        // Pisahkan via koleksi PHP (tanpa query tambahan)
+        $incomeCategories = $categories->where('type', 'income');
+        $expenseCategories = $categories->where('type', 'expense');
 
         return view('categories.index', compact('incomeCategories', 'expenseCategories'));
     }
@@ -38,9 +36,9 @@ class CategoryController extends Controller
 
         Category::create([
             'user_id' => auth()->id(),
-            'name' => $validated['name'],
-            'type' => $validated['type'],
-            'icon' => $validated['icon'] ?? 'ti-circle', // Ikon default dari Tabler
+            'name'    => $validated['name'],
+            'type'    => $validated['type'],
+            'icon'    => $validated['icon'] ?? 'ti-circle',
         ]);
 
         return redirect()->route('categories.index')->with('success', 'Kategori berhasil ditambahkan.');
@@ -48,13 +46,18 @@ class CategoryController extends Controller
 
     public function edit(Category $category)
     {
-        if ($category->user_id !== auth()->id()) abort(403);
+        if ($category->user_id !== auth()->id()) {
+            abort(403);
+        }
+
         return view('categories.edit', compact('category'));
     }
 
     public function update(Request $request, Category $category)
     {
-        if ($category->user_id !== auth()->id()) abort(403);
+        if ($category->user_id !== auth()->id()) {
+            abort(403);
+        }
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -73,10 +76,12 @@ class CategoryController extends Controller
 
     public function destroy(Category $category)
     {
-        if ($category->user_id !== auth()->id()) abort(403);
+        if ($category->user_id !== auth()->id()) {
+            abort(403);
+        }
 
-        $category->delete(); // Soft delete agar transaksi lama tidak kehilangan nama kategori
-        
+        $category->delete();
+
         return redirect()->route('categories.index')->with('success', 'Kategori berhasil dihapus.');
     }
 }

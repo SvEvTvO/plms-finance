@@ -9,7 +9,6 @@
         "php": "^8.2",
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.0",
-        "laravel/telescope": "^5.22",
         "laravel/tinker": "^2.9",
         "mohapinkepane/laravel-whatsapp-cloud": "dev-master",
         "phpoffice/phpspreadsheet": "^5.9"

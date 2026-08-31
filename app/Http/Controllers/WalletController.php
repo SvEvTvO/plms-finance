@@ -4,15 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Models\Wallet;
 use Illuminate\Http\Request;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\View\View;
 use Illuminate\Support\Facades\DB;
 
 class WalletController extends Controller
 {
-    public function index()
+    public function index(): View
     {
         $userId = auth()->id();
 
-        // 1. Ambil tepat 1 dompet yang berstatus Default
+        // 1. Ambil tepat 1 dompet default
         $defaultWallet = Wallet::where('user_id', $userId)
             ->where('is_default', true)
             ->first();
@@ -24,21 +26,13 @@ class WalletController extends Controller
             ->limit(2)
             ->get();
 
-        // 3. Gabungkan: Default di urutan pertama (kiri), disusul saldo tertinggi (tengah & kanan)
-        $topWallets = collect();
+        // 3. Gabungkan ke dalam satu collection
+        $topWallets = collect([$defaultWallet])->filter()->concat($topBalanceWallets);
 
-        if ($defaultWallet) {
-            $topWallets->push($defaultWallet);
-        }
-
-        foreach ($topBalanceWallets as $wallet) {
-            $topWallets->push($wallet);
-        }
-
-        // 4. Ambil ID dari dompet-dompet di atas agar tidak berulang di tabel
+        // 4. Ambil ID dompet top agar tidak duplikat di tabel bawah
         $topWalletIds = $topWallets->pluck('id')->toArray();
 
-        // 5. Ambil SISA dompet untuk dimasukkan ke tabel (Pagination max 7)
+        // 5. Ambil sisa dompet untuk tabel list (Pagination 7)
         $tableWallets = Wallet::where('user_id', $userId)
             ->whereNotIn('id', $topWalletIds)
             ->orderByDesc('created_at')
@@ -47,84 +41,86 @@ class WalletController extends Controller
         return view('wallets.index', compact('topWallets', 'tableWallets'));
     }
 
-    public function create()
+    public function create(): View
     {
         return view('wallets.create');
     }
 
-    public function store(Request $request)
+    public function store(Request $request): RedirectResponse
     {
+        $userId = auth()->id();
+
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'type' => 'required|string|in:Bank,E-Wallet,Cash,Other',
+            'name'    => 'required|string|max:255',
+            'type'    => 'required|string|in:Bank,E-Wallet,Cash,Other',
             'balance' => 'required|numeric|min:0',
-            'color' => 'nullable|string|max:7',
+            'color'   => 'nullable|string|max:7',
         ]);
 
-        DB::transaction(function () use ($validated) {
-            $isFirst = Wallet::where('user_id', auth()->id())->count() === 0;
+        DB::transaction(function () use ($validated, $userId) {
+            $isFirstWallet = !Wallet::where('user_id', $userId)->exists();
 
             Wallet::create([
-                'user_id' => auth()->id(),
-                'name' => $validated['name'],
-                'type' => $validated['type'],
-                'balance' => $validated['balance'],
-                'color' => $validated['color'] ?? '#14B8A6', // Default ke Primary Color
-                'is_active' => true,
-                'is_default' => $isFirst, // Otomatis default jika ini wallet pertama
+                'user_id'    => $userId,
+                'name'       => $validated['name'],
+                'type'       => $validated['type'],
+                'balance'    => $validated['balance'],
+                'color'      => $validated['color'] ?? '#14B8A6',
+                'is_active'  => true,
+                'is_default' => $isFirstWallet,
             ]);
         });
 
         return redirect()->route('wallets.index')->with('success', 'Wallet berhasil ditambahkan.');
     }
 
-    public function edit(Wallet $wallet)
+    public function edit(Wallet $wallet): View
     {
-        if ($wallet->user_id !== auth()->id()) abort(403);
+        abort_if($wallet->user_id !== auth()->id(), 403);
+
         return view('wallets.edit', compact('wallet'));
     }
 
-    public function update(Request $request, Wallet $wallet)
+    public function update(Request $request, Wallet $wallet): RedirectResponse
     {
-        if ($wallet->user_id !== auth()->id()) abort(403);
+        abort_if($wallet->user_id !== auth()->id(), 403);
 
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'type' => 'required|string|in:Bank,E-Wallet,Cash,Other',
+            'name'  => 'required|string|max:255',
+            'type'  => 'required|string|in:Bank,E-Wallet,Cash,Other',
             'color' => 'nullable|string|max:7',
         ]);
 
         $wallet->update([
-            'name' => $validated['name'],
-            'type' => $validated['type'],
-            'color' => $validated['color'] ?? $wallet->color,
+            'name'      => $validated['name'],
+            'type'      => $validated['type'],
+            'color'     => $validated['color'] ?? $wallet->color,
             'is_active' => $request->has('is_active'),
         ]);
 
         return redirect()->route('wallets.index')->with('success', 'Wallet berhasil diperbarui.');
     }
 
-    public function destroy(Wallet $wallet)
+    public function destroy(Wallet $wallet): RedirectResponse
     {
-        if ($wallet->user_id !== auth()->id()) abort(403);
+        abort_if($wallet->user_id !== auth()->id(), 403);
 
         if ($wallet->is_default) {
             return back()->with('error', 'Tidak dapat menghapus wallet utama (default).');
         }
 
-        $wallet->delete(); // Soft delete
+        $wallet->delete();
+
         return redirect()->route('wallets.index')->with('success', 'Wallet berhasil dihapus.');
     }
 
-    public function setDefault(Wallet $wallet)
+    public function setDefault(Wallet $wallet): RedirectResponse
     {
-        if ($wallet->user_id !== auth()->id()) abort(403);
+        $userId = auth()->id();
+        abort_if($wallet->user_id !== $userId, 403);
 
-        DB::transaction(function () use ($wallet) {
-            // Reset semua wallet milik user menjadi bukan default
-            Wallet::where('user_id', auth()->id())->update(['is_default' => false]);
-
-            // Set wallet terpilih menjadi default
+        DB::transaction(function () use ($wallet, $userId) {
+            Wallet::where('user_id', $userId)->update(['is_default' => false]);
             $wallet->update(['is_default' => true]);
         });
 

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Saving extends Model
 {
@@ -18,17 +19,30 @@ class Saving extends Model
         'description',
     ];
 
-    public function user()
+    protected function casts(): array
+    {
+        return [
+            'user_id'   => 'integer',
+            'goal_id'   => 'integer',
+            'wallet_id' => 'integer',
+            'amount'    => 'decimal:2',
+            'date'      => 'date',
+        ];
+    }
+
+    // --- RELATIONSHIPS ---
+
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
-    public function goal()
+    public function goal(): BelongsTo
     {
         return $this->belongsTo(Goal::class);
     }
 
-    public function wallet()
+    public function wallet(): BelongsTo
     {
         return $this->belongsTo(Wallet::class);
     }

@@ -7,6 +7,7 @@ use App\Models\Category;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Illuminate\View\View;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
@@ -15,67 +16,76 @@ use PhpOffice\PhpSpreadsheet\Style\Fill;
 
 class ReportController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request): View
     {
+        $userId    = auth()->id();
         $startDate = $request->input('start_date', Carbon::now()->startOfMonth()->format('Y-m-d'));
-        $endDate = $request->input('end_date', Carbon::now()->endOfMonth()->format('Y-m-d'));
-        $type = $request->input('type');
+        $endDate   = $request->input('end_date', Carbon::now()->endOfMonth()->format('Y-m-d'));
+        $type      = $request->input('type');
         $categoryId = $request->input('category_id');
 
-        // 1. Query Utama untuk Tabel (dengan relasi)
-        $query = Transaction::with(['category', 'wallet', 'sourceWallet', 'destinationWallet'])
-                            ->where('user_id', auth()->id())
-                            ->whereBetween('date', [$startDate, $endDate]);
+        // 1. Base Query Filter
+        $baseQuery = Transaction::where('user_id', $userId)
+            ->whereBetween('date', [$startDate, $endDate]);
 
-        if ($type) $query->where('type', $type);
-        if ($categoryId) $query->where('category_id', $categoryId);
+        if ($type) {
+            $baseQuery->where('type', $type);
+        }
+        if ($categoryId) {
+            $baseQuery->where('category_id', $categoryId);
+        }
 
-        // 2. Hitung Summary
-        $totalIncome = (clone $query)->where('type', 'income')->sum('amount');
-        $totalExpense = (clone $query)->where('type', 'expense')->sum('amount');
-        $netIncome = $totalIncome - $totalExpense;
+        // 2. Hitung Summary (1 Query Agregasi)
+        $summary = (clone $baseQuery)
+            ->whereIn('type', ['income', 'expense'])
+            ->selectRaw('type, sum(amount) as total')
+            ->groupBy('type')
+            ->pluck('total', 'type');
 
-        // 3. Siapkan Data Chart (Query terpisah agar lebih bersih & akurat)
-        $chartQuery = Transaction::where('user_id', auth()->id())
-                                 ->whereBetween('date', [$startDate, $endDate]);
+        $totalIncome  = (float) ($summary['income'] ?? 0);
+        $totalExpense = (float) ($summary['expense'] ?? 0);
+        $netIncome    = $totalIncome - $totalExpense;
 
-        if ($type) $chartQuery->where('type', $type);
-        if ($categoryId) $chartQuery->where('category_id', $categoryId);
-
-        $chartDataRaw = $chartQuery->selectRaw('date, type, sum(amount) as total')
+        // 3. Data Chart (1 Query Agregasi)
+        $chartDataRaw = (clone $baseQuery)
+            ->selectRaw('date, type, sum(amount) as total')
             ->groupBy('date', 'type')
             ->orderBy('date')
             ->get();
 
-        $dates = [];
-        $incomes = [];
+        // Buat map [tanggal][tipe] => total untuk lookup instan O(1)
+        $chartMap = [];
+        foreach ($chartDataRaw as $item) {
+            $d = Carbon::parse($item->date)->format('Y-m-d');
+            $chartMap[$d][$item->type] = (float) $item->total;
+        }
+
+        $dates    = [];
+        $incomes  = [];
         $expenses = [];
 
         $currentDate = Carbon::parse($startDate);
-        $lastDate = Carbon::parse($endDate);
+        $lastDate    = Carbon::parse($endDate);
 
         while ($currentDate->lte($lastDate)) {
             $dateString = $currentDate->format('Y-m-d');
-            $dates[] = $currentDate->translatedFormat('d M');
+            $dates[]    = $currentDate->translatedFormat('d M');
 
-            $incomeData = $chartDataRaw->first(function ($item) use ($dateString) {
-                return Carbon::parse($item->date)->format('Y-m-d') === $dateString && $item->type === 'income';
-            });
-
-            $expenseData = $chartDataRaw->first(function ($item) use ($dateString) {
-                return Carbon::parse($item->date)->format('Y-m-d') === $dateString && $item->type === 'expense';
-            });
-
-            $incomes[] = $incomeData ? (float) $incomeData->total : 0;
-            $expenses[] = $expenseData ? (float) $expenseData->total : 0;
+            $incomes[]  = $chartMap[$dateString]['income'] ?? 0;
+            $expenses[] = $chartMap[$dateString]['expense'] ?? 0;
 
             $currentDate->addDay();
         }
 
-        // 4. Ambil data transaksi dengan Pagination (Maks 10)
-        $transactions = $query->orderByDesc('date')->orderByDesc('id')->paginate(10)->withQueryString();
+        // 4. Data Transaksi Paginated
+        $transactions = (clone $baseQuery)
+            ->with(['category', 'wallet', 'sourceWallet', 'destinationWallet'])
+            ->orderByDesc('date')
+            ->orderByDesc('id')
+            ->paginate(10)
+            ->withQueryString();
 
-        $categories = Category::where('user_id', auth()->id())->orderBy('name')->get();
+        $categories = Category::where('user_id', $userId)->orderBy('name')->get();
 
         return view('reports.index', compact(
             'transactions', 'totalIncome', 'totalExpense', 'netIncome',
@@ -84,30 +94,32 @@ class ReportController extends Controller
         ));
     }
 
-    public function export(Request $request)
+    public function export(Request $request): StreamedResponse
     {
-        // 1. Ambil Parameter Filter
+        $userId    = auth()->id();
         $startDate = $request->input('start_date', Carbon::now()->startOfMonth()->format('Y-m-d'));
-        $endDate = $request->input('end_date', Carbon::now()->endOfMonth()->format('Y-m-d'));
-        $type = $request->input('type');
+        $endDate   = $request->input('end_date', Carbon::now()->endOfMonth()->format('Y-m-d'));
+        $type      = $request->input('type');
         $categoryId = $request->input('category_id');
 
-        // 2. Query Transaksi Berdasarkan Filter
         $query = Transaction::with(['category', 'wallet', 'sourceWallet', 'destinationWallet'])
-                            ->where('user_id', auth()->id())
-                            ->whereBetween('date', [$startDate, $endDate]);
+            ->where('user_id', $userId)
+            ->whereBetween('date', [$startDate, $endDate]);
 
-        if ($type) $query->where('type', $type);
-        if ($categoryId) $query->where('category_id', $categoryId);
+        if ($type) {
+            $query->where('type', $type);
+        }
+        if ($categoryId) {
+            $query->where('category_id', $categoryId);
+        }
 
         $transactions = $query->orderBy('date', 'asc')->orderBy('id', 'asc')->get();
 
-        // 3. Inisialisasi Spreadsheet
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Laporan Keuangan');
 
-        // 4. Set Header di Baris 2
+        // Header
         $headers = [
             'A2' => 'No',
             'B2' => 'Tanggal',
@@ -123,10 +135,8 @@ class ReportController extends Controller
             $sheet->setCellValue($cell, $value);
         }
 
-        // Tinggi baris header (0.40" = 28.8 pt)
         $sheet->getRowDimension(2)->setRowHeight(28.8);
 
-        // Styling Header
         $sheet->getStyle('A2:H2')->applyFromArray([
             'font' => [
                 'bold' => true,
@@ -136,7 +146,7 @@ class ReportController extends Controller
             ],
             'fill' => [
                 'fillType' => Fill::FILL_SOLID,
-                'startColor' => ['argb' => 'FF00736A'], // Hex 00736a
+                'startColor' => ['argb' => 'FF00736A'],
             ],
             'alignment' => [
                 'horizontal' => Alignment::HORIZONTAL_CENTER,
@@ -144,7 +154,7 @@ class ReportController extends Controller
             ],
         ]);
 
-        // 5. Masukkan Data Mulai Baris 3
+        // Isi Data
         $currentRow = 3;
         $no = 1;
 
@@ -170,19 +180,14 @@ class ReportController extends Controller
             $sheet->setCellValue('G' . $currentRow, (float) $trx->amount);
             $sheet->setCellValue('H' . $currentRow, $trx->description ?? '-');
 
-            // Tinggi baris data (0.26" = 18.72 pt)
-            // $sheet->getRowDimension($currentRow)->setRowHeight(18.72);
-
             $currentRow++;
         }
 
         $lastRow = $currentRow - 1;
 
-        // 6. Styling Data Rows (Jika ada data)
         if ($lastRow >= 3) {
             $dataRange = 'A3:H' . $lastRow;
 
-            // Background Data dan Warna Text
             $sheet->getStyle($dataRange)->applyFromArray([
                 'font' => [
                     'color' => ['argb' => 'FFFFFFFF'],
@@ -198,32 +203,26 @@ class ReportController extends Controller
                 ],
             ]);
 
-            // Alignment: A-G Rata Tengah
             $sheet->getStyle('A3:G' . $lastRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-
-            // Alignment H: Rata Kiri & AKTIFKAN WRAP TEXT
             $sheet->getStyle('H3:H' . $lastRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
-            $sheet->getStyle('H3:H' . $lastRow)->getAlignment()->setWrapText(true); // <--- TAMBAHKAN INI
+            $sheet->getStyle('H3:H' . $lastRow)->getAlignment()->setWrapText(true);
         }
 
-        // 7. Border Garis Pembatas (Outline 999999)
         $tableRange = 'A2:H' . max(2, $lastRow);
         $sheet->getStyle($tableRange)->applyFromArray([
             'borders' => [
                 'allBorders' => [
                     'borderStyle' => Border::BORDER_THIN,
-                    'color' => ['argb' => 'FF999999'], // Outline color
+                    'color' => ['argb' => 'FF999999'],
                 ],
             ],
         ]);
 
-        // 8. Auto-fit lebar kolom
         foreach (range('A', 'G') as $col) {
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
-        $sheet->getColumnDimension('H')->setWidth(50); // Kolom keterangan dilebarkan manual
+        $sheet->getColumnDimension('H')->setWidth(50);
 
-        // 9. Eksekusi Download (.xlsx)
         $fileName = "Laporan_Keuangan_{$startDate}_sd_{$endDate}.xlsx";
 
         return response()->streamDownload(function () use ($spreadsheet) {

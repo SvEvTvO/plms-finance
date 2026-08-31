@@ -7,63 +7,67 @@ use App\Models\Saving;
 use App\Models\Wallet;
 use App\Services\FinanceService;
 use Illuminate\Http\Request;
-use Exception;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\View\View;
+use Illuminate\Validation\Rule;
+use Throwable;
 
 class SavingController extends Controller
 {
-    protected $financeService;
+    public function __construct(
+        protected FinanceService $financeService
+    ) {}
 
-    public function __construct(FinanceService $financeService)
+    public function create(Request $request): View
     {
-        $this->financeService = $financeService;
-    }
+        $userId = auth()->id();
 
-    public function create(Request $request)
-    {
-        // Ambil goal yang belum selesai
-        $goals = Goal::where('user_id', auth()->id())
-                     ->where('is_completed', false)
-                     ->orderBy('deadline')
-                     ->get();
+        // Ambil target yang belum selesai
+        $goals = Goal::where('user_id', $userId)
+            ->where('is_completed', false)
+            ->orderBy('deadline')
+            ->get();
 
         // Ambil dompet yang aktif
-        $wallets = Wallet::where('user_id', auth()->id())
-                       ->where('is_active', true)
-                       ->get();
+        $wallets = Wallet::where('user_id', $userId)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
 
-        // Jika user mengklik "Setor" dari kartu target tertentu, tangkap ID-nya
         $selectedGoalId = $request->query('goal_id');
 
         return view('savings.create', compact('goals', 'wallets', 'selectedGoalId'));
     }
 
-    public function store(Request $request)
+    public function store(Request $request): RedirectResponse
     {
+        $userId = auth()->id();
+
+        // Validasi ketat kepemilikan goal & wallet oleh user yang sedang login
         $validated = $request->validate([
-            'goal_id' => 'required|exists:goals,id',
-            'wallet_id' => 'required|exists:wallets,id',
-            'amount' => 'required|numeric|min:1',
-            'date' => 'required|date',
-            'description' => 'nullable|string|max:255',
+            'goal_id'     => ['required', Rule::exists('goals', 'id')->where('user_id', $userId)],
+            'wallet_id'   => ['required', Rule::exists('wallets', 'id')->where('user_id', $userId)],
+            'amount'      => ['required', 'numeric', 'min:1'],
+            'date'        => ['required', 'date'],
+            'description' => ['nullable', 'string', 'max:255'],
         ]);
 
         try {
             $this->financeService->createSaving($validated);
             return redirect()->route('goals.index')->with('success', 'Tabungan berhasil disetorkan! Saldo dompet Anda telah dikurangi.');
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return back()->withInput()->with('error', $e->getMessage());
         }
     }
 
-    // Untuk sementara, fungsi hapus tabungan jika terjadi salah input
-    public function destroy(Saving $saving)
+    public function destroy(Saving $saving): RedirectResponse
     {
-        if ($saving->user_id !== auth()->id()) abort(403);
+        abort_if($saving->user_id !== auth()->id(), 403);
 
         try {
             $this->financeService->deleteSaving($saving);
             return back()->with('success', 'Tabungan berhasil ditarik kembali ke dompet.');
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
     }

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class User extends Authenticatable
 {
@@ -28,14 +29,21 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
-            'password' => 'hashed',
+            'password'          => 'hashed',
+            'is_admin'          => 'boolean',
         ];
     }
 
     // --- RELATIONSHIPS ---
+
     public function wallets(): HasMany
     {
         return $this->hasMany(Wallet::class);
+    }
+
+    public function defaultWallet(): HasOne
+    {
+        return $this->hasOne(Wallet::class)->where('is_default', true);
     }
 
     public function categories(): HasMany

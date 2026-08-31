@@ -2,21 +2,31 @@
 
 namespace App\Providers;
 
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Facades\URL; // Tambahkan ini
 
 class AppServiceProvider extends ServiceProvider
 {
+    /**
+     * Register any application services.
+     */
     public function register(): void
     {
         //
     }
 
+    /**
+     * Bootstrap any application services.
+     */
     public function boot(): void
     {
-        // Tambahkan 3 baris ini untuk memaksa HTTPS di Vercel
-        if (env('APP_ENV') !== 'local') {
+        // 1. Paksa HTTPS di Vercel / Production
+        if (!app()->isLocal()) {
             URL::forceScheme('https');
         }
+
+        // 2. Proteksi N+1 Query & Strict Model di Development
+        Model::shouldBeStrict(!app()->isProduction());
     }
 }
