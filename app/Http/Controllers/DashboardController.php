@@ -35,8 +35,8 @@ class DashboardController extends Controller
         $monthlyData = Transaction::where('user_id', $userId)
             ->whereBetween('date', [$startOfLastMonth, $endOfThisMonth])
             ->whereIn('type', ['income', 'expense'])
-            ->selectRaw('YEAR(date) as yr, MONTH(date) as mo, type, sum(amount) as total')
-            ->groupBy('yr', 'mo', 'type')
+            ->selectRaw('EXTRACT(YEAR FROM date) as yr, EXTRACT(MONTH FROM date) as mo, type, sum(amount) as total')
+            ->groupByRaw('EXTRACT(YEAR FROM date), EXTRACT(MONTH FROM date), type')
             ->get();
 
         // Helper untuk ekstrak nilai dari collection
