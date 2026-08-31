@@ -21,7 +21,7 @@ class TransactionController extends Controller
         $this->financeService = $financeService;
     }
 
-    public function index()
+    public function index(Request $request)
     {
         $startTime = microtime(true);
         $startMemory = memory_get_usage();
@@ -29,6 +29,7 @@ class TransactionController extends Controller
         // Log start query
         Log::info('Transaction Index - Start', [
             'user_id' => auth()->id(),
+            'filters' => $request->only(['search', 'type', 'start_date', 'end_date']),
             'timestamp' => now()->toDateTimeString()
         ]);
 
@@ -36,11 +37,42 @@ class TransactionController extends Controller
         DB::enableQueryLog();
 
         $queryStart = microtime(true);
-        $transactions = Transaction::with(['wallet', 'category', 'sourceWallet', 'destinationWallet'])
-            ->where('user_id', auth()->id())
-            ->orderByDesc('date')
+
+        // Inisialisasi Query Builder
+        $query = Transaction::with(['wallet', 'category', 'sourceWallet', 'destinationWallet'])
+            ->where('user_id', auth()->id());
+
+        // 1. Filter Pencarian (Keterangan atau Kategori)
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('description', 'like', "%{$search}%")
+                  ->orWhereHas('category', function($qCat) use ($search) {
+                      $qCat->where('name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        // 2. Filter Jenis Transaksi
+        if ($request->filled('type')) {
+            $query->where('type', $request->type);
+        }
+
+        // 3. Filter Rentang Tanggal (Mulai)
+        if ($request->filled('start_date')) {
+            $query->whereDate('date', '>=', $request->start_date);
+        }
+
+        // 4. Filter Rentang Tanggal (Akhir)
+        if ($request->filled('end_date')) {
+            $query->whereDate('date', '<=', $request->end_date);
+        }
+
+        // Eksekusi Pengurutan dan Pagination
+        $transactions = $query->orderByDesc('date')
             ->orderByDesc('id')
             ->paginate(15);
+
         $queryTime = microtime(true) - $queryStart;
 
         // Get query log
@@ -65,7 +97,7 @@ class TransactionController extends Controller
         // Log memory usage
         $endMemory = memory_get_usage();
         $endTime = microtime(true);
-        
+
         Log::info('Transaction Index - Performance Summary', [
             'user_id' => auth()->id(),
             'total_time' => round(($endTime - $startTime) * 1000, 2) . 'ms',
@@ -129,7 +161,7 @@ class TransactionController extends Controller
     public function store(Request $request)
     {
         $startTime = microtime(true);
-        
+
         Log::info('Transaction Store - Start', [
             'user_id' => auth()->id(),
             'type' => $request->type,
@@ -221,7 +253,7 @@ class TransactionController extends Controller
             return redirect()->route('transactions.index')->with('success', 'Transaksi berhasil dicatat.');
         } catch (Exception $e) {
             $endTime = microtime(true);
-            
+
             Log::error('Transaction Store - Error', [
                 'user_id' => auth()->id(),
                 'type' => $request->type,

@@ -22,6 +22,60 @@
         </div>
     @endif
 
+    <!-- ========================================== -->
+    <!-- FILTER TRANSAKSI                           -->
+    <!-- ========================================== -->
+    <form action="{{ route('transactions.index') }}" method="GET" class="bg-surface border border-border rounded-xl p-5 mb-6 shadow-sm">
+        <div class="flex flex-col md:flex-row gap-4 items-end">
+            <!-- Search -->
+            <div class="w-full md:w-1/3">
+                <label for="search" class="block text-sm font-medium text-heading mb-1.5">Cari Transaksi</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="ti ti-search text-muted"></i>
+                    </div>
+                    <input type="text" name="search" id="search" value="{{ request('search') }}" placeholder="Keterangan atau kategori..." class="w-full pl-10 pr-3 py-2 bg-background border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors outline-none">
+                </div>
+            </div>
+
+            <!-- Type -->
+            <div class="w-full md:w-1/5">
+                <label for="type" class="block text-sm font-medium text-heading mb-1.5">Jenis Transaksi</label>
+                <select name="type" id="type" class="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors outline-none">
+                    <option value="">Semua Jenis</option>
+                    <option value="income" {{ request('type') == 'income' ? 'selected' : '' }}>Pemasukan</option>
+                    <option value="expense" {{ request('type') == 'expense' ? 'selected' : '' }}>Pengeluaran</option>
+                    <option value="transfer" {{ request('type') == 'transfer' ? 'selected' : '' }}>Transfer</option>
+                </select>
+            </div>
+
+            <!-- Date Range -->
+            <div class="w-full md:w-1/5">
+                <label for="start_date" class="block text-sm font-medium text-heading mb-1.5">Dari Tanggal</label>
+                <input type="date" name="start_date" id="start_date" value="{{ request('start_date') }}" class="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors outline-none">
+            </div>
+            <div class="w-full md:w-1/5">
+                <label for="end_date" class="block text-sm font-medium text-heading mb-1.5">Sampai Tanggal</label>
+                <input type="date" name="end_date" id="end_date" value="{{ request('end_date') }}" class="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors outline-none">
+            </div>
+
+            <!-- Buttons -->
+            <div class="w-full md:w-auto flex gap-2">
+                <button type="submit" class="bg-primary text-surface px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors shadow-sm flex items-center whitespace-nowrap">
+                    <i class="ti ti-filter mr-1.5"></i> Filter
+                </button>
+                @if(request()->anyFilled(['search', 'type', 'start_date', 'end_date']))
+                    <a href="{{ route('transactions.index') }}" class="bg-background border border-border text-heading px-4 py-2 rounded-lg text-sm font-medium hover:bg-background/80 transition-colors flex items-center whitespace-nowrap" title="Reset Filter">
+                        <i class="ti ti-refresh"></i>
+                    </a>
+                @endif
+            </div>
+        </div>
+    </form>
+
+    <!-- ========================================== -->
+    <!-- TABEL TRANSAKSI                            -->
+    <!-- ========================================== -->
     <div class="bg-surface border border-border rounded-xl overflow-hidden shadow-sm w-full">
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
@@ -115,7 +169,7 @@
         </div>
         
         <div class="p-4 border-t border-border">
-            {{ $transactions->links() }}
+            {{ $transactions->withQueryString()->links() }}
         </div>
     </div>
 </x-app-layout>
